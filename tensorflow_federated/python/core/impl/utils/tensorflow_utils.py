@@ -140,8 +140,9 @@ def get_tf_typespec_and_binding(parameter_type, arg_names, unpack=None):
     elif isinstance(parameter_type, computation_types.SequenceType):
       raise NotImplementedError('Sequence iputs not yet supported for TF 2.0.')
     else:
-      raise ValueError('Parameter type component {} cannot be converted '
-                       'to a TensorSpec'.format(repr(parameter_type)))
+      raise ValueError(
+          'Parameter type component {!r} cannot be converted to a TensorSpec'
+          .format(parameter_type))
 
   def get_arg_name(i):
     name = arg_names[i]
@@ -350,11 +351,10 @@ def stamp_parameter_in_graph(parameter_name, parameter_type, graph):
                     variant_tensor_name=variant_tensor.name)))
   else:
     raise ValueError(
-        'Parameter type component {} cannot be stamped into a TensorFlow '
-        'graph.'.format(repr(parameter_type)))
+        'Parameter type component {!r} cannot be stamped into a TensorFlow '
+        'graph.'.format(parameter_type))
 
 
-# TODO(b/129956296): Eventually delete this deprecated declaration.
 DATASET_REPRESENTATION_TYPES = (tf.data.Dataset, tf.compat.v1.data.Dataset,
                                 tf.compat.v2.data.Dataset)
 
@@ -530,13 +530,7 @@ def compute_map_from_bindings(source, target):
       raise ValueError(
           'Source and target sequence bindings mismatch: {} vs. {}'.format(
               sequence_oneof, target.sequence.WhichOneof('binding')))
-    if sequence_oneof == 'iterator_string_handle_name':
-      # TODO(b/129956296): Eventually delete this deprecated code path.
-      return collections.OrderedDict([
-          (str(source.sequence.iterator_string_handle_name),
-           str(target.sequence.iterator_string_handle_name))
-      ])
-    elif sequence_oneof == 'variant_tensor_name':
+    if sequence_oneof == 'variant_tensor_name':
       return collections.OrderedDict([
           (str(source.sequence.variant_tensor_name),
            str(target.sequence.variant_tensor_name)),
@@ -573,10 +567,7 @@ def extract_tensor_names_from_binding(binding):
     return [str(binding.tensor.tensor_name)]
   elif binding_oneof == 'sequence':
     sequence_oneof = binding.sequence.WhichOneof('binding')
-    if sequence_oneof == 'iterator_string_handle_name':
-      # TODO(b/129956296): Eventually delete this deprecated code path.
-      return [str(binding.sequence.iterator_string_handle_name)]
-    elif sequence_oneof == 'variant_tensor_name':
+    if sequence_oneof == 'variant_tensor_name':
       return [str(binding.sequence.variant_tensor_name)]
     else:
       raise ValueError('Unsupported sequence binding {}'.format(sequence_oneof))
