@@ -33,13 +33,12 @@ from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.api import value_base
 from tensorflow_federated.python.core.impl import computation_impl
 from tensorflow_federated.python.core.impl import context_stack_base
-from tensorflow_federated.python.core.impl import intrinsic_defs
-from tensorflow_federated.python.core.impl import placement_literals
 from tensorflow_federated.python.core.impl import tensorflow_serialization
 from tensorflow_federated.python.core.impl import type_utils
 from tensorflow_federated.python.core.impl.compiler import building_block_factory
 from tensorflow_federated.python.core.impl.compiler import building_blocks
-from tensorflow_federated.python.core.impl.utils import dtype_utils
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
+from tensorflow_federated.python.core.impl.compiler import placement_literals
 from tensorflow_federated.python.core.impl.utils import function_utils
 from tensorflow_federated.python.core.impl.utils import tensorflow_utils
 
@@ -52,8 +51,8 @@ class ValueImpl(value_base.Value):
     """Constructs a value of the given type.
 
     Args:
-      comp: An instance of building_blocks.ComputationBuildingBlock
-        that contains the logic that computes this value.
+      comp: An instance of building_blocks.ComputationBuildingBlock that
+        contains the logic that computes this value.
       context_stack: The context stack to use.
     """
     py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
@@ -341,10 +340,10 @@ def to_value(arg, type_spec, context_stack):
     result = ValueImpl(
         building_blocks.Tuple([
             (k, ValueImpl.get_comp(to_value(v, None, context_stack)))
-            for k, v in anonymous_tuple.to_elements(arg)
+            for k, v in anonymous_tuple.iter_elements(arg)
         ]), context_stack)
   elif py_typecheck.is_named_tuple(arg):
-    result = to_value(arg._asdict(), None, context_stack)
+    result = to_value(arg._asdict(), None, context_stack)  # pytype: disable=attribute-error
   elif py_typecheck.is_attrs(arg):
     result = to_value(
         attr.asdict(arg, dict_factory=collections.OrderedDict, recurse=False),
@@ -364,7 +363,7 @@ def to_value(arg, type_spec, context_stack):
         building_blocks.Tuple([
             ValueImpl.get_comp(to_value(x, None, context_stack)) for x in arg
         ]), context_stack)
-  elif isinstance(arg, dtype_utils.TENSOR_REPRESENTATION_TYPES):
+  elif isinstance(arg, tensorflow_utils.TENSOR_REPRESENTATION_TYPES):
     result = _wrap_constant_as_value(arg, context_stack)
   elif isinstance(arg, (tf.Tensor, tf.Variable)):
     raise TypeError(

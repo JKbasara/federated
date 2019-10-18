@@ -27,12 +27,12 @@ from tensorflow_federated.python.common_libs import anonymous_tuple
 from tensorflow_federated.python.common_libs import py_typecheck
 from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.impl import context_stack_base
-from tensorflow_federated.python.core.impl import intrinsic_defs
 from tensorflow_federated.python.core.impl import intrinsic_factory
 from tensorflow_federated.python.core.impl import type_utils
 from tensorflow_federated.python.core.impl import value_impl
 from tensorflow_federated.python.core.impl.compiler import building_block_factory
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
 
 
 def get_intrinsic_bodies(context_stack):
@@ -209,7 +209,7 @@ def get_intrinsic_bodies(context_stack):
       return _apply_generic_op(tf.divide, x, y)
     elif isinstance(x.type_signature, computation_types.NamedTupleType):
       # This case is needed if federated types are nested deeply.
-      names = [t[0] for t in anonymous_tuple.to_elements(x.type_signature)]
+      names = [t[0] for t in anonymous_tuple.iter_elements(x.type_signature)]
       divided = [
           value_impl.ValueImpl.get_comp(generic_divide([x[i], y[i]]))
           for i in range(len(names))
@@ -232,7 +232,7 @@ def get_intrinsic_bodies(context_stack):
       return _apply_generic_op(tf.multiply, x, y)
     elif isinstance(x.type_signature, computation_types.NamedTupleType):
       # This case is needed if federated types are nested deeply.
-      names = [t[0] for t in anonymous_tuple.to_elements(x.type_signature)]
+      names = [t[0] for t in anonymous_tuple.iter_elements(x.type_signature)]
       multiplied = [
           value_impl.ValueImpl.get_comp(generic_multiply([x[i], y[i]]))
           for i in range(len(names))
@@ -255,7 +255,7 @@ def get_intrinsic_bodies(context_stack):
     # TODO(b/136587334): Push this logic down a level
     elif isinstance(x.type_signature, computation_types.NamedTupleType):
       # This case is needed if federated types are nested deeply.
-      names = [t[0] for t in anonymous_tuple.to_elements(x.type_signature)]
+      names = [t[0] for t in anonymous_tuple.iter_elements(x.type_signature)]
       added = [
           value_impl.ValueImpl.get_comp(generic_plus([x[i], y[i]]))
           for i in range(len(names))

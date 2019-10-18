@@ -1,6 +1,6 @@
 package(default_visibility = ["//tensorflow_federated/python/core:__subpackages__"])
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 py_library(
     name = "framework",
@@ -8,19 +8,20 @@ py_library(
     visibility = ["//visibility:public"],
     deps = [
         "//tensorflow_federated/python/core/impl/compiler:building_block_analysis",
-        "//tensorflow_federated/python/core/impl/compiler:building_blocks",
-        "//tensorflow_federated/python/core/impl/compiler:tree_analysis",
         "//tensorflow_federated/python/core/impl/compiler:building_block_factory",
+        "//tensorflow_federated/python/core/impl/compiler:building_blocks",
+        "//tensorflow_federated/python/core/impl/compiler:intrinsic_defs",
+        "//tensorflow_federated/python/core/impl/compiler:transformation_utils",
+        "//tensorflow_federated/python/core/impl/compiler:tree_analysis",
         "//tensorflow_federated/python/core/impl:computation_wrapper_instances",
-        "//tensorflow_federated/python/core/impl:intrinsic_defs",
         "//tensorflow_federated/python/core/impl:intrinsic_reductions",
-        "//tensorflow_federated/python/core/impl:transformation_utils",
         "//tensorflow_federated/python/core/impl:transformations",
         "//tensorflow_federated/python/core/impl:type_utils",
     ] + select({
         "//tensorflow_federated:py2_mode": [],
         "//tensorflow_federated:py3_mode": [
             "//tensorflow_federated/python/core/impl:caching_executor",
+            "//tensorflow_federated/python/core/impl:composite_executor",
             "//tensorflow_federated/python/core/impl:concurrent_executor",
             "//tensorflow_federated/python/core/impl:eager_executor",
             "//tensorflow_federated/python/core/impl:executor_base",

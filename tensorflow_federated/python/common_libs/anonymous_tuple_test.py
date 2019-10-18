@@ -12,17 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for anonymous_tuple.py."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 
 from absl.testing import absltest
 import attr
-from six.moves import range
 
 from tensorflow_federated.python.common_libs import anonymous_tuple
 
@@ -97,6 +91,7 @@ class AnonymousTupleTest(absltest.TestCase):
     self.assertRaises(IndexError, lambda _: x[3], None)
     self.assertEqual(list(iter(x)), [10, 20, 30])
     self.assertEqual(dir(x), ['bar', 'foo'])
+    self.assertEqual(anonymous_tuple.name_list(x), ['foo', 'bar'])
     self.assertEqual(x.foo, 20)
     self.assertEqual(x.bar, 30)
     self.assertRaises(AttributeError, lambda _: x.baz, None)
@@ -119,6 +114,18 @@ class AnonymousTupleTest(absltest.TestCase):
 
     with self.assertRaisesRegex(ValueError, '_asdict.*reserved'):
       anonymous_tuple.AnonymousTuple([('_asdict', 40)])
+
+    with self.assertRaisesRegex(ValueError, '_element_array.*reserved'):
+      anonymous_tuple.AnonymousTuple([('_element_array', 40)])
+
+    with self.assertRaisesRegex(ValueError, '_name_to_index.*reserved'):
+      anonymous_tuple.AnonymousTuple([('_name_to_index', 40)])
+
+    with self.assertRaisesRegex(ValueError, '_name_array.*reserved'):
+      anonymous_tuple.AnonymousTuple([('_name_array', 40)])
+
+    with self.assertRaisesRegex(ValueError, '_hash.*reserved'):
+      anonymous_tuple.AnonymousTuple([('_hash', 40)])
 
   def test_immutable(self):
     v = [('foo', 'a string'), ('bar', 1), ('baz', [1.0, 2.0, 3.0])]
@@ -150,6 +157,72 @@ class AnonymousTupleTest(absltest.TestCase):
       t[1] = 5
     with self.assertRaises(TypeError):
       t[2] = [1, 2, 3]
+
+  def test_equality_unnamed(self):
+    # identity
+    t1 = anonymous_tuple.AnonymousTuple([(None, 1), (None, 2)])
+    self.assertTrue(t1.__eq__(t1))
+    self.assertFalse(t1.__ne__(t1))
+    # different type
+    self.assertFalse(t1.__eq__(None))
+    self.assertTrue(t1.__ne__(None))
+    # copy
+    t2 = anonymous_tuple.AnonymousTuple([(None, 1), (None, 2)])
+    self.assertTrue(t1.__eq__(t2))
+    self.assertTrue(t2.__eq__(t1))
+    self.assertFalse(t1.__ne__(t2))
+    self.assertFalse(t2.__ne__(t1))
+    # different ordering
+    t3 = anonymous_tuple.AnonymousTuple([(None, 2), (None, 1)])
+    self.assertFalse(t1.__eq__(t3))
+    self.assertFalse(t3.__eq__(t1))
+    self.assertTrue(t1.__ne__(t3))
+    self.assertTrue(t3.__ne__(t1))
+    # different names
+    t4 = anonymous_tuple.AnonymousTuple([('a', 1), ('b', 2)])
+    self.assertFalse(t1.__eq__(t4))
+    self.assertFalse(t4.__eq__(t1))
+    self.assertTrue(t1.__ne__(t4))
+    self.assertTrue(t4.__ne__(t1))
+    # different values
+    t5 = anonymous_tuple.AnonymousTuple([(None, 10), (None, 10)])
+    self.assertFalse(t1.__eq__(t5))
+    self.assertFalse(t5.__eq__(t1))
+    self.assertTrue(t1.__ne__(t5))
+    self.assertTrue(t5.__ne__(t1))
+
+  def test_equality_named(self):
+    # identity
+    t1 = anonymous_tuple.AnonymousTuple([('a', 1), ('b', 2)])
+    self.assertTrue(t1.__eq__(t1))
+    self.assertFalse(t1.__ne__(t1))
+    # different type
+    self.assertFalse(t1.__eq__(None))
+    self.assertTrue(t1.__ne__(None))
+    # copy
+    t2 = anonymous_tuple.AnonymousTuple([('a', 1), ('b', 2)])
+    self.assertTrue(t1.__eq__(t2))
+    self.assertTrue(t2.__eq__(t1))
+    self.assertFalse(t1.__ne__(t2))
+    self.assertFalse(t2.__ne__(t1))
+    # different ordering
+    t3 = anonymous_tuple.AnonymousTuple([('b', 2), ('a', 1)])
+    self.assertFalse(t1.__eq__(t3))
+    self.assertFalse(t3.__eq__(t1))
+    self.assertTrue(t1.__ne__(t3))
+    self.assertTrue(t3.__ne__(t1))
+    # different names
+    t4 = anonymous_tuple.AnonymousTuple([('c', 1), ('d', 2)])
+    self.assertFalse(t1.__eq__(t4))
+    self.assertFalse(t4.__eq__(t1))
+    self.assertTrue(t1.__ne__(t4))
+    self.assertTrue(t4.__ne__(t1))
+    # different values
+    t5 = anonymous_tuple.AnonymousTuple([('a', 10), ('b', 10)])
+    self.assertFalse(t1.__eq__(t5))
+    self.assertFalse(t5.__eq__(t1))
+    self.assertTrue(t1.__ne__(t5))
+    self.assertTrue(t5.__ne__(t1))
 
   def test_hash(self):
     v1 = [(str(i) if i > 30 else None, i) for i in range(0, 50, 10)]

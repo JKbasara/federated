@@ -30,10 +30,10 @@ from tensorflow_federated.python.common_libs import anonymous_tuple
 from tensorflow_federated.python.common_libs import py_typecheck
 from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.api import typed_object
-from tensorflow_federated.python.core.impl import intrinsic_defs
-from tensorflow_federated.python.core.impl import placement_literals
-from tensorflow_federated.python.core.impl import type_serialization
 from tensorflow_federated.python.core.impl import type_utils
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
+from tensorflow_federated.python.core.impl.compiler import placement_literals
+from tensorflow_federated.python.core.impl.compiler import type_serialization
 
 
 def _check_computation_oneof(computation_proto, expected_computation_oneof):
@@ -366,7 +366,7 @@ class Tuple(ComputationBuildingBlock, anonymous_tuple.AnonymousTuple):
   @property
   def proto(self):
     elements = []
-    for k, v in anonymous_tuple.to_elements(self):
+    for k, v in anonymous_tuple.iter_elements(self):
       if k is not None:
         element = pb.Tuple.Element(name=k, value=v.proto)
       else:
@@ -384,7 +384,7 @@ class Tuple(ComputationBuildingBlock, anonymous_tuple.AnonymousTuple):
       return '({}, {!r})'.format(name_repr, value)
 
     return 'Tuple([{}])'.format(', '.join(
-        _element_repr(e) for e in anonymous_tuple.to_elements(self)))
+        _element_repr(e) for e in anonymous_tuple.iter_elements(self)))
 
 
 class Call(ComputationBuildingBlock):
@@ -522,14 +522,14 @@ class Lambda(ComputationBuildingBlock):
 
   @property
   def proto(self):
-    return pb.Computation(
-        type=type_serialization.serialize_type(self.type_signature),
-        **{
-            'lambda':
-                pb.Lambda(
-                    parameter_name=self._parameter_name,
-                    result=self._result.proto)
-        })
+    type_signature = type_serialization.serialize_type(self.type_signature)
+    fn = pb.Lambda(
+        parameter_name=self._parameter_name, result=self._result.proto)
+    # We are unpacking the lambda argument here because `lambda` is a reserved
+    # keyword in Python, but it is also the name of the parameter for a
+    # `pb.Computation`.
+    # https://developers.google.com/protocol-buffers/docs/reference/python-generated#keyword-conflicts
+    return pb.Computation(type=type_signature, **{'lambda': fn})  # pytype: disable=wrong-keyword-args
 
   @property
   def parameter_name(self):

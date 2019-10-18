@@ -36,8 +36,20 @@ container for a stateful broadcast function.
 [`assign(...)`](../tff/utils/assign.md): Creates an op that assigns `target`
 from `source`.
 
+[`build_dp_aggregate(...)`](../tff/utils/build_dp_aggregate.md): Builds a
+stateful aggregator for tensorflow_privacy DPQueries.
+
+[`build_dp_query(...)`](../tff/utils/build_dp_query.md): Makes a `DPQuery` to
+estimate vector averages with differential privacy.
+
 [`build_encoded_broadcast(...)`](../tff/utils/build_encoded_broadcast.md):
 Builds `StatefulBroadcastFn` for `values`, to be encoded by `encoders`.
+
+[`build_encoded_mean(...)`](../tff/utils/build_encoded_mean.md): Builds
+`StatefulAggregateFn` for `values`, to be encoded by `encoders`.
+
+[`build_encoded_sum(...)`](../tff/utils/build_encoded_sum.md): Builds
+`StatefulAggregateFn` for `values`, to be encoded by `encoders`.
 
 [`create_variables(...)`](../tff/utils/create_variables.md): Creates a set of
 variables that matches the given `type_spec`.
@@ -47,6 +59,9 @@ maximum value from the <a href="../tff.md#CLIENTS"><code>tff.CLIENTS</code></a>.
 
 [`federated_min(...)`](../tff/utils/federated_min.md): Aggregation to find the
 minimum value from the <a href="../tff.md#CLIENTS"><code>tff.CLIENTS</code></a>.
+
+[`federated_sample(...)`](../tff/utils/federated_sample.md): Aggregation to
+produce uniform sample of at most `max_num_samples` values.
 
 [`identity(...)`](../tff/utils/identity.md): Applies `tf.identity` pointwise to
 `source`.

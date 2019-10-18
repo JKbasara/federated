@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y \
     ${PYTHON}-pip \
     git
 
-RUN ${PIP} --no-cache-dir install --upgrade \
+RUN ${PIP} install --no-cache-dir --upgrade \
     pip \
     setuptools
 
@@ -57,18 +57,20 @@ RUN mkdir /bazel && \
 RUN bazel version
 
 # Install the TensorFlow Federated development environment dependencies
-RUN ${PIP} --no-cache-dir install \
+RUN ${PIP} install --no-cache-dir \
     absl-py~=0.7 \
     attrs~=18.2 \
     cachetools~=3.1.1 \
     enum34~=1.1 \
     grpcio~=1.22.0 \
     h5py~=2.6 \
-    matplotlib~=3.0 \
     numpy~=1.14 \
     pandas~=0.24.0 \
-    portpicker \
+    portpicker~=1.3.1 \
     six~=1.10 \
-    tensorflow-model-optimization~=0.1.2 \
-    tf-nightly==1.15.0.dev20190805
+    tensorflow-model-optimization~=0.1.3 \
+    tensorflow-privacy~=0.2.0 \
+    tf-nightly \
+    tfa-nightly \
+    typing~=3.7.0
 RUN pip freeze

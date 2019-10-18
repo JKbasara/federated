@@ -28,12 +28,12 @@ from tensorflow_federated.python.common_libs import anonymous_tuple
 from tensorflow_federated.python.common_libs import py_typecheck
 from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.impl import compiled_computation_transforms
-from tensorflow_federated.python.core.impl import intrinsic_defs
-from tensorflow_federated.python.core.impl import transformation_utils
 from tensorflow_federated.python.core.impl import type_utils
 from tensorflow_federated.python.core.impl.compiler import building_block_analysis
 from tensorflow_federated.python.core.impl.compiler import building_block_factory
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
+from tensorflow_federated.python.core.impl.compiler import transformation_utils
 from tensorflow_federated.python.core.impl.compiler import tree_analysis
 
 
@@ -47,8 +47,8 @@ def _apply_transforms(comp, transforms):
   considered extensively in order to avoid such subtle issues.
 
   Args:
-    comp: An instance of `building_blocks.ComputationBuildingBlock`
-      to transform with all elements of `transforms`.
+    comp: An instance of `building_blocks.ComputationBuildingBlock` to transform
+      with all elements of `transforms`.
     transforms: An instance of `transformation_utils.TransformSpec` or iterable
       thereof, the transformations to apply to `comp`.
 
@@ -86,8 +86,8 @@ def remove_lambdas_and_blocks(comp):
   final pass.
 
   Args:
-    comp: Instance of `building_blocks.ComputationBuildingBlock`
-      from which we want to remove called lambdas and blocks.
+    comp: Instance of `building_blocks.ComputationBuildingBlock` from which we
+      want to remove called lambdas and blocks.
 
   Returns:
     A transformed version of `comp` which has no called lambdas or blocks, and
@@ -97,7 +97,7 @@ def remove_lambdas_and_blocks(comp):
   comp, _ = uniquify_reference_names(comp)
   comp, _ = replace_called_lambda_with_block(comp)
   block_inliner = InlineBlock(comp)
-  selection_replacer = ReplaceSelectionFromTuple(comp)
+  selection_replacer = ReplaceSelectionFromTuple()
   transforms = [block_inliner, selection_replacer]
   symbol_tree = transformation_utils.SymbolTree(
       transformation_utils.ReferenceCounter)
@@ -113,10 +113,10 @@ def remove_lambdas_and_blocks(comp):
     no function exposed which hoists out the internal logic.
 
     Args:
-      comp: Instance of `building_blocks.ComputationBuildingBlock`
-        we wish to check for inlining and collapsing of selections.
-      symbol_tree: Instance of `building_blocks.SymbolTree` defining
-        the bindings available to `comp`.
+      comp: Instance of `building_blocks.ComputationBuildingBlock` we wish to
+        check for inlining and collapsing of selections.
+      symbol_tree: Instance of `building_blocks.SymbolTree` defining the
+        bindings available to `comp`.
 
     Returns:
       A transformed version of `comp`.
@@ -163,6 +163,7 @@ class ExtractComputation(transformation_utils.TransformSpec):
       TypeError: If types do not match.
       ValueError: If `comp` contains variables with non-unique names.
     """
+    super(ExtractComputation, self).__init__()
     py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
     tree_analysis.check_has_unique_names(comp)
     self._name_generator = building_block_factory.unique_name_generator(comp)
@@ -338,7 +339,7 @@ class ExtractComputation(transformation_utils.TransformSpec):
     """Returns a new computation with all intrinsics extracted."""
     variables = []
     elements = []
-    for name, element in anonymous_tuple.to_elements(comp):
+    for name, element in anonymous_tuple.iter_elements(comp):
       if self._passes_test_or_block(element):
         variable_name = six.next(self._name_generator)
         variables.append((variable_name, element))
@@ -481,8 +482,8 @@ def inline_block_locals(comp, variable_names=None):
       comp, transform_spec.transform, symbol_tree)
 
 
-def merge_chained_blocks(comp):
-  r"""Merges all the chained blocks in `comp` into one block.
+class MergeChainedBlocks(transformation_utils.TransformSpec):
+  r"""Merges chained blocks into one block.
 
   Looks for occurrences of the following pattern:
 
@@ -498,39 +499,37 @@ def merge_chained_blocks(comp):
        /     \
   [...]       Comp(x)
 
-  Preserving the relative ordering of any locals declarations in a postorder
-  walk, which therefore preserves scoping rules.
+  Preserving the relative ordering of any locals declarations, which preserves
+  scoping rules.
 
   Notice that because TFF Block constructs bind their variables in sequence, it
   is completely safe to add the locals lists together in this implementation,
-
-  Args:
-    comp: The computation building block in which to perform the merges.
-
-  Returns:
-    Transformed version of `comp` with its neighboring blocks merged.
   """
-  py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
 
-  def _should_transform(comp):
+  def should_transform(self, comp):
+    """Returns `True` if `comp` is a block and its result is a block."""
     return (isinstance(comp, building_blocks.Block) and
             isinstance(comp.result, building_blocks.Block))
 
-  def _transform(comp):
-    if not _should_transform(comp):
+  def transform(self, comp):
+    """Returns a new transformed computation or `comp`."""
+    if not self.should_transform(comp):
       return comp, False
-    transformed_comp = building_blocks.Block(comp.locals + comp.result.locals,
-                                             comp.result.result)
-    return transformed_comp, True
-
-  return transformation_utils.transform_postorder(comp, _transform)
+    comp = building_blocks.Block(comp.locals + comp.result.locals,
+                                 comp.result.result)
+    return comp, True
 
 
-def merge_chained_federated_maps_or_applys(comp):
-  r"""Merges all the chained federated maps or federated apply in `comp`.
+def merge_chained_blocks(comp):
+  """Merges chained blocks into one block."""
+  return _apply_transforms(comp, MergeChainedBlocks())
 
-  This transform traverses `comp` postorder, matches the following pattern, and
-  replaces the following computation containing two federated map intrinsics:
+
+class MergeChainedFederatedMapsOrApplys(transformation_utils.TransformSpec):
+  r"""Merges chained federated maps or federated apply into one structure.
+
+  This transform matches the following pattern, and replaces the following
+  computation containing two federated map intrinsics:
 
             Call
            /    \
@@ -568,20 +567,22 @@ def merge_chained_federated_maps_or_applys(comp):
 
   The functional computations `x` and `y`, and the argument `z` are retained;
   the other computations are replaced.
-
-  Args:
-    comp: The computation building block in which to perform the merges.
-
-  Returns:
-    A new computation with the transformation applied or the original `comp`.
-
-  Raises:
-    TypeError: If types do not match.
   """
-  py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
-  name_generator = building_block_factory.unique_name_generator(comp)
 
-  def _should_transform(comp):
+  def __init__(self, comp):
+    """Constructs a new instance.
+
+    Args:
+      comp: The computation building block in which to perform the merges.
+
+    Raises:
+      TypeError: If types do not match.
+    """
+    super(MergeChainedFederatedMapsOrApplys, self).__init__()
+    py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
+    self._name_generator = building_block_factory.unique_name_generator(comp)
+
+  def should_transform(self, comp):
     """Returns `True` if `comp` is a chained federated map."""
     if building_block_analysis.is_called_intrinsic(comp, (
         intrinsic_defs.FEDERATED_APPLY.uri,
@@ -593,50 +594,49 @@ def merge_chained_federated_maps_or_applys(comp):
         return True
     return False
 
-  def _transform(comp):
+  def _create_block_to_chained_calls(self, comps):
+    r"""Constructs a transformed block computation from `comps`.
+
+                   Block
+                  /     \
+        [fn=Tuple]       Lambda(arg)
+            |                       \
+    [Comp(y), Comp(x)]               Call
+                                    /    \
+                              Sel(1)      Call
+                             /           /    \
+                      Ref(fn)      Sel(0)      Ref(arg)
+                                  /
+                           Ref(fn)
+
+    (let fn=<y, x> in (arg -> fn[1](fn[0](arg)))
+
+    Args:
+      comps: A Python list of computations.
+
+    Returns:
+      A `building_blocks.Block`.
+    """
+    functions = building_blocks.Tuple(comps)
+    functions_name = six.next(self._name_generator)
+    functions_ref = building_blocks.Reference(functions_name,
+                                              functions.type_signature)
+    arg_name = six.next(self._name_generator)
+    arg_type = comps[0].type_signature.parameter
+    arg_ref = building_blocks.Reference(arg_name, arg_type)
+    arg = arg_ref
+    for index, _ in enumerate(comps):
+      fn_sel = building_blocks.Selection(functions_ref, index=index)
+      call = building_blocks.Call(fn_sel, arg)
+      arg = call
+    fn = building_blocks.Lambda(arg_ref.name, arg_ref.type_signature, call)
+    return building_blocks.Block(((functions_ref.name, functions),), fn)
+
+  def transform(self, comp):
     """Returns a new transformed computation or `comp`."""
-    if not _should_transform(comp):
+    if not self.should_transform(comp):
       return comp, False
-
-    def _create_block_to_chained_calls(comps):
-      r"""Constructs a transformed block computation from `comps`.
-
-                     Block
-                    /     \
-          [fn=Tuple]       Lambda(arg)
-              |                       \
-      [Comp(y), Comp(x)]               Call
-                                      /    \
-                                Sel(1)      Call
-                               /           /    \
-                        Ref(fn)      Sel(0)      Ref(arg)
-                                    /
-                             Ref(fn)
-
-      (let fn=<y, x> in (arg -> fn[1](fn[0](arg)))
-
-      Args:
-        comps: A Python list of computations.
-
-      Returns:
-        A `building_blocks.Block`.
-      """
-      functions = building_blocks.Tuple(comps)
-      functions_name = six.next(name_generator)
-      functions_ref = building_blocks.Reference(functions_name,
-                                                functions.type_signature)
-      arg_name = six.next(name_generator)
-      arg_type = comps[0].type_signature.parameter
-      arg_ref = building_blocks.Reference(arg_name, arg_type)
-      arg = arg_ref
-      for index, _ in enumerate(comps):
-        fn_sel = building_blocks.Selection(functions_ref, index=index)
-        call = building_blocks.Call(fn_sel, arg)
-        arg = call
-      fn = building_blocks.Lambda(arg_ref.name, arg_ref.type_signature, call)
-      return building_blocks.Block(((functions_ref.name, functions),), fn)
-
-    block = _create_block_to_chained_calls((
+    block = self._create_block_to_chained_calls((
         comp.argument[1].argument[0],
         comp.argument[0],
     ))
@@ -647,18 +647,21 @@ def merge_chained_federated_maps_or_applys(comp):
     intrinsic_type = computation_types.FunctionType(
         arg.type_signature, comp.function.type_signature.result)
     intrinsic = building_blocks.Intrinsic(comp.function.uri, intrinsic_type)
-    transformed_comp = building_blocks.Call(intrinsic, arg)
-    return transformed_comp, True
-
-  return transformation_utils.transform_postorder(comp, _transform)
+    comp = building_blocks.Call(intrinsic, arg)
+    return comp, True
 
 
-def merge_tuple_intrinsics(comp, uri):
-  r"""Merges all the tuples of intrinsics in `comp` into one intrinsic.
+def merge_chained_federated_maps_or_applys(comp):
+  """Merges chained federated maps or federated apply into one structure."""
+  return _apply_transforms(comp, MergeChainedFederatedMapsOrApplys(comp))
 
-  This transform traverses `comp` postorder, matches the following pattern, and
-  replaces the following computation containing a tuple of called intrinsics all
-  represeting the same operation:
+
+class MergeTupleIntrinsics(transformation_utils.TransformSpec):
+  r"""Merges a tuple of called intrinsics into one called intrinsic.
+
+  This transform matches the following pattern, and replaces the following
+  computation containing a tuple of called intrinsics all represeting the same
+  operation:
 
            Tuple
            |
@@ -706,38 +709,42 @@ def merge_tuple_intrinsics(comp, uri):
   * intrinsic_defs.FEDERATED_APPLY.uri
   * intrinsic_defs.FEDERATED_BROADCAST.uri
   * intrinsic_defs.FEDERATED_MAP.uri
-
-  Args:
-    comp: The computation building block in which to perform the merges.
-    uri: The URI of the intrinsic to merge.
-
-  Returns:
-    A new computation with the transformation applied or the original `comp`.
-
-  Raises:
-    TypeError: If types do not match.
   """
-  py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
-  py_typecheck.check_type(uri, six.string_types)
-  expected_uri = (
-      intrinsic_defs.FEDERATED_AGGREGATE.uri,
-      intrinsic_defs.FEDERATED_APPLY.uri,
-      intrinsic_defs.FEDERATED_BROADCAST.uri,
-      intrinsic_defs.FEDERATED_MAP.uri,
-  )
-  if uri not in expected_uri:
-    raise ValueError(
-        'The value of `uri` is expected to be on of {}, found {}'.format(
-            expected_uri, uri))
-  name_generator = building_block_factory.unique_name_generator(comp)
 
-  def _should_transform(comp):
+  def __init__(self, comp, uri):
+    """Constructs a new instance.
+
+    Args:
+      comp: The computation building block in which to perform the merges.
+      uri: The URI of the intrinsic to merge.
+
+    Raises:
+      TypeError: If types do not match.
+      ValueError: If the `uri` has an unexpected value.
+    """
+    super(MergeTupleIntrinsics, self).__init__()
+    py_typecheck.check_type(uri, six.string_types)
+    self._name_generator = building_block_factory.unique_name_generator(comp)
+    expected_uri = (
+        intrinsic_defs.FEDERATED_AGGREGATE.uri,
+        intrinsic_defs.FEDERATED_APPLY.uri,
+        intrinsic_defs.FEDERATED_BROADCAST.uri,
+        intrinsic_defs.FEDERATED_MAP.uri,
+    )
+    if uri not in expected_uri:
+      raise ValueError(
+          'The value of `uri` is expected to be on of {}, found {}'.format(
+              expected_uri, uri))
+    self._uri = uri
+
+  def should_transform(self, comp):
     return (isinstance(comp, building_blocks.Tuple) and comp and
-            building_block_analysis.is_called_intrinsic(comp[0], uri) and all(
+            building_block_analysis.is_called_intrinsic(comp[0], self._uri) and
+            all(
                 building_block_analysis.is_called_intrinsic(
                     element, comp[0].function.uri) for element in comp))
 
-  def _transform_args_with_type(comps, type_signature):
+  def _transform_args_with_type(self, comps, type_signature):
     """Transforms a Python `list` of computations.
 
     Given a computation containing `n` called intrinsics with `m` arguments,
@@ -755,17 +762,17 @@ def merge_tuple_intrinsics(comp, uri):
       A `building_blocks.Block`.
     """
     if isinstance(type_signature, computation_types.FederatedType):
-      return _transform_args_with_federated_types(comps, type_signature)
+      return self._transform_args_with_federated_types(comps, type_signature)
     elif isinstance(type_signature, computation_types.FunctionType):
-      return _transform_args_with_functional_types(comps, type_signature)
+      return self._transform_args_with_functional_types(comps, type_signature)
     elif isinstance(type_signature, computation_types.AbstractType):
-      return _transform_args_with_abstract_types(comps, type_signature)
+      return self._transform_args_with_abstract_types(comps, type_signature)
     else:
       raise TypeError(
           'Expected a FederatedType, FunctionalType, or an AbstractType, '
           'found: {}'.format(type(type_signature)))
 
-  def _transform_args_with_abstract_types(comps, type_signature):
+  def _transform_args_with_abstract_types(self, comps, type_signature):
     r"""Transforms a Python `list` of computations with abstract types.
 
     Tuple
@@ -783,7 +790,7 @@ def merge_tuple_intrinsics(comp, uri):
     del type_signature  # Unused
     return building_blocks.Tuple(comps)
 
-  def _transform_args_with_federated_types(comps, type_signature):
+  def _transform_args_with_federated_types(self, comps, type_signature):
     r"""Transforms a Python `list` of computations with federated types.
 
     federated_zip(Tuple)
@@ -802,7 +809,7 @@ def merge_tuple_intrinsics(comp, uri):
     values = building_blocks.Tuple(comps)
     return building_block_factory.create_federated_zip(values)
 
-  def _transform_args_with_functional_types(comps, type_signature):
+  def _transform_args_with_functional_types(self, comps, type_signature):
     r"""Transforms a Python `list` of computations with functional types.
 
                     Block
@@ -826,7 +833,7 @@ def merge_tuple_intrinsics(comp, uri):
       A `building_blocks.Block`.
     """
     functions = building_blocks.Tuple(comps)
-    fn_name = six.next(name_generator)
+    fn_name = six.next(self._name_generator)
     fn_ref = building_blocks.Reference(fn_name, functions.type_signature)
     if isinstance(type_signature.parameter, computation_types.NamedTupleType):
       arg_type = [[] for _ in range(len(type_signature.parameter))]
@@ -837,7 +844,7 @@ def merge_tuple_intrinsics(comp, uri):
           arg_type[index].append(concrete_type)
     else:
       arg_type = [e.type_signature.parameter for e in comps]
-    arg_name = six.next(name_generator)
+    arg_name = six.next(self._name_generator)
     arg_ref = building_blocks.Reference(arg_name, arg_type)
     if isinstance(type_signature.parameter, computation_types.NamedTupleType):
       arg = building_block_factory.create_zip(arg_ref)
@@ -853,7 +860,7 @@ def merge_tuple_intrinsics(comp, uri):
     result = building_blocks.Lambda(arg_ref.name, arg_ref.type_signature, calls)
     return building_blocks.Block(((fn_ref.name, functions),), result)
 
-  def _transform_args(comp, type_signature):
+  def _transform_args(self, comp, type_signature):
     """Transforms the arguments from `comp`.
 
     Given a computation containing a tuple of intrinsics that can be merged,
@@ -871,26 +878,26 @@ def merge_tuple_intrinsics(comp, uri):
     """
     if isinstance(type_signature, computation_types.NamedTupleType):
       comps = [[] for _ in range(len(type_signature))]
-      for _, call in anonymous_tuple.to_elements(comp):
+      for _, call in anonymous_tuple.iter_elements(comp):
         for index, arg in enumerate(call.argument):
           comps[index].append(arg)
       transformed_args = []
       for args, arg_type in zip(comps, type_signature):
-        transformed_arg = _transform_args_with_type(args, arg_type)
+        transformed_arg = self._transform_args_with_type(args, arg_type)
         transformed_args.append(transformed_arg)
       return building_blocks.Tuple(transformed_args)
     else:
       args = []
-      for _, call in anonymous_tuple.to_elements(comp):
+      for _, call in anonymous_tuple.iter_elements(comp):
         args.append(call.argument)
-      return _transform_args_with_type(args, type_signature)
+      return self._transform_args_with_type(args, type_signature)
 
-  def _transform(comp):
+  def transform(self, comp):
     """Returns a new transformed computation or `comp`."""
-    if not _should_transform(comp):
+    if not self.should_transform(comp):
       return comp, False
-    intrinsic_def = intrinsic_defs.uri_to_intrinsic_def(uri)
-    arg = _transform_args(comp, intrinsic_def.type_signature.parameter)
+    intrinsic_def = intrinsic_defs.uri_to_intrinsic_def(self._uri)
+    arg = self._transform_args(comp, intrinsic_def.type_signature.parameter)
     named_comps = anonymous_tuple.to_elements(comp)
     parameter_type = computation_types.to_type(arg.type_signature)
     type_signature = [call.type_signature.member for _, call in named_comps]
@@ -898,14 +905,17 @@ def merge_tuple_intrinsics(comp, uri):
         type_signature, intrinsic_def.type_signature.result.placement,
         intrinsic_def.type_signature.result.all_equal)
     intrinsic_type = computation_types.FunctionType(parameter_type, result_type)
-    intrinsic = building_blocks.Intrinsic(uri, intrinsic_type)
+    intrinsic = building_blocks.Intrinsic(self._uri, intrinsic_type)
     call = building_blocks.Call(intrinsic, arg)
     tup = building_block_factory.create_federated_unzip(call)
     names = [name for name, _ in named_comps]
     transformed_comp = building_block_factory.create_named_tuple(tup, names)
     return transformed_comp, True
 
-  return transformation_utils.transform_postorder(comp, _transform)
+
+def merge_tuple_intrinsics(comp, uri):
+  r"""Merges tuples of called intrinsics into one called intrinsic."""
+  return _apply_transforms(comp, MergeTupleIntrinsics(comp, uri))
 
 
 def remove_duplicate_computations(comp):
@@ -1074,10 +1084,6 @@ class ReplaceCalledLambdaWithBlock(transformation_utils.TransformSpec):
   let x=y in z
   """
 
-  def __init__(self, comp):
-    super(ReplaceCalledLambdaWithBlock, self).__init__()
-    py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
-
   def should_transform(self, comp):
     return (isinstance(comp, building_blocks.Call) and
             isinstance(comp.function, building_blocks.Lambda))
@@ -1092,7 +1098,7 @@ class ReplaceCalledLambdaWithBlock(transformation_utils.TransformSpec):
 
 def replace_called_lambda_with_block(comp):
   """Replaces all the called lambdas in `comp` with a block."""
-  return _apply_transforms(comp, ReplaceCalledLambdaWithBlock(comp))
+  return _apply_transforms(comp, ReplaceCalledLambdaWithBlock())
 
 
 class ReplaceSelectionFromTuple(transformation_utils.TransformSpec):
@@ -1109,19 +1115,6 @@ class ReplaceSelectionFromTuple(transformation_utils.TransformSpec):
   with the appropriate Comp, as determined by the `index` or `name` of the
   `Selection`.
   """
-
-  def __init__(self, comp):
-    """Initializes `ReplaceSelectionFromTuple`.
-
-    Args:
-      comp: The computation building block in which to perform the replacements.
-
-    Raises:
-      TypeError: If `comp` is not an instance of
-        `building_blocks.ComputationBuildingBlock`.
-    """
-    super(ReplaceSelectionFromTuple, self).__init__()
-    py_typecheck.check_type(comp, building_blocks.ComputationBuildingBlock)
 
   def should_transform(self, comp):
     return (isinstance(comp, building_blocks.Selection) and
@@ -1143,7 +1136,7 @@ class ReplaceSelectionFromTuple(transformation_utils.TransformSpec):
 
 def replace_selection_from_tuple_with_element(comp):
   """Replaces any selection from a tuple with the underlying tuple element."""
-  return _apply_transforms(comp, ReplaceSelectionFromTuple(comp))
+  return _apply_transforms(comp, ReplaceSelectionFromTuple())
 
 
 def uniquify_compiled_computation_names(comp):
@@ -1299,8 +1292,8 @@ class TFParser(object):
     it is safe to return early.
 
     Args:
-      comp: The `building_blocks.ComputationBuildingBlock` to check
-        for possibility of reduction according to the parsing library.
+      comp: The `building_blocks.ComputationBuildingBlock` to check for
+        possibility of reduction according to the parsing library.
 
     Returns:
       A tuple whose first element is a possibly transformed version of `comp`,
@@ -1348,12 +1341,11 @@ def insert_called_tf_identity_at_leaves(comp):
   parameter validation on `comp`.
 
   Args:
-    comp: Instance of `building_blocks.Lambda` whose AST we will
-      traverse, replacing appropriate instances of
-      `building_blocks.Reference` with graphs representing the
-      identity function of the appropriate type called on the same reference.
-      `comp` must declare a parameter and result type which are both able to be
-      stamped in to a TensorFlow graph.
+    comp: Instance of `building_blocks.Lambda` whose AST we will traverse,
+      replacing appropriate instances of `building_blocks.Reference` with graphs
+      representing the identity function of the appropriate type called on the
+      same reference. `comp` must declare a parameter and result type which are
+      both able to be stamped in to a TensorFlow graph.
 
   Returns:
     A possibly modified  version of `comp`, where any references now have a
@@ -1390,7 +1382,7 @@ def insert_called_tf_identity_at_leaves(comp):
     if (isinstance(comp, building_blocks.Tuple) and
         any(_should_decorate(x) for x in comp)):
       elems = []
-      for x in anonymous_tuple.to_elements(comp):
+      for x in anonymous_tuple.iter_elements(comp):
         if _should_decorate(x[1]):
           elems.append((x[0], _decorate(x[1])))
         else:
@@ -1500,8 +1492,8 @@ def unwrap_placement(comp):
     of this federated unbound reference.
 
     Args:
-      comp: Instance of `building_blocks.ComputationBuildingBlock`
-        with at most a single unbound reference.
+      comp: Instance of `building_blocks.ComputationBuildingBlock` with at most
+        a single unbound reference.
       unbound_variable_name: The name of the lone unbound variable present under
         `comp`.
 
@@ -1565,8 +1557,8 @@ def unwrap_placement(comp):
     signatures as arguments to their constructors.
 
     Args:
-      comp: Instance of `building_blocks.ComputationBuildingBlock`
-        from which we wish to remove placement.
+      comp: Instance of `building_blocks.ComputationBuildingBlock` from which we
+        wish to remove placement.
 
     Returns:
       A transformed version of comp with its placements removed.
@@ -1640,36 +1632,27 @@ def unwrap_placement(comp):
     return transformation_utils.transform_postorder(comp, _transform)
 
   if unbound_reference_name is None:
-    unbound_variable_renamed = comp
-    unbound_reference_name = None
-    unbound_reference_type = None
+    placement_removed, _ = _remove_placement(comp)
+    return building_block_factory.create_federated_value(
+        placement_removed, single_placement), True
   else:
     (unbound_variable_renamed,
      unbound_reference_info) = _rename_unbound_variable(comp,
                                                         unbound_reference_name)
     (new_reference_name, unbound_reference_type) = unbound_reference_info
-
     if not isinstance(unbound_reference_type, computation_types.FederatedType):
-      raise TypeError('The lone unbound reference is not of federated type; '
-                      'this is disallowed. '
-                      'The unbound type is {}'.format(unbound_reference_type))
+      raise TypeError(
+          'The lone unbound reference is not of federated type; this is '
+          'disallowed. The unbound type is {}'.format(unbound_reference_type))
 
-  placement_removed, _ = _remove_placement(unbound_variable_renamed)
-
-  if unbound_reference_name is None:
-    return building_block_factory.create_federated_value(
-        placement_removed, single_placement), True
-
-  ref_to_fed_arg = building_blocks.Reference(unbound_reference_name,
-                                             unbound_reference_type)
-
-  lambda_wrapping_placement_removal = building_blocks.Lambda(
-      new_reference_name, unbound_reference_type.member, placement_removed)
-
-  called_intrinsic = building_block_factory.create_federated_map_or_apply(
-      lambda_wrapping_placement_removal, ref_to_fed_arg)
-
-  return called_intrinsic, True
+    placement_removed, _ = _remove_placement(unbound_variable_renamed)
+    ref_to_fed_arg = building_blocks.Reference(unbound_reference_name,
+                                               unbound_reference_type)
+    lambda_wrapping_placement_removal = building_blocks.Lambda(
+        new_reference_name, unbound_reference_type.member, placement_removed)
+    called_intrinsic = building_block_factory.create_federated_map_or_apply(
+        lambda_wrapping_placement_removal, ref_to_fed_arg)
+    return called_intrinsic, True
 
 
 def get_map_of_unbound_references(comp):

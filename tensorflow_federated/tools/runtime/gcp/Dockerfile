@@ -13,18 +13,19 @@
 # limitations under the License.
 FROM gcr.io/google_appengine/python
 
-RUN virtualenv -p python3.6 /env
+RUN python3 --version
 
-ENV VIRTUAL_ENV /env
-ENV PATH /env/bin:$PATH
+COPY "tensorflow_federated-"*".whl" /
+COPY "tensorflow_federated/python/simulation/worker.py" /
 
-ADD requirements.txt /
-ADD tensorflow_federated/python/simulation/worker.py /
+RUN pip3 install --no-cache-dir --upgrade \
+    pip \
+    setuptools
 
-RUN python3 -m pip install -r /requirements.txt
-RUN python3 -m pip --no-cache-dir install tensorflow_federated
-RUN pip freeze
+RUN pip3 install --no-cache-dir --upgrade \
+    "/tensorflow_federated-"*".whl"
+RUN pip3 freeze
 
 EXPOSE 8000
 
-ENTRYPOINT ["python", "/worker.py"]
+ENTRYPOINT ["python3", "/worker.py"]

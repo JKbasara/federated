@@ -12,11 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for learning.framework.encoding_utils."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 from absl.testing import parameterized
 import numpy as np
@@ -33,10 +28,22 @@ from tensorflow_model_optimization.python.core.internal import tensor_encoding a
 class EncodingUtilsTest(test.TestCase, parameterized.TestCase):
   """Tests for utilities for building StatefulFns."""
 
-  def test_broadcast_from_model_fn_encoder_fn(self):
+  def test_mean_from_model(self):
+    model_fn = model_examples.TrainableLinearRegression
+    gather_fn = encoding_utils.build_encoded_mean_from_model(
+        model_fn, _test_encoder_fn('gather'))
+    self.assertIsInstance(gather_fn, tff.utils.StatefulAggregateFn)
+
+  def test_sum_from_model(self):
+    model_fn = model_examples.TrainableLinearRegression
+    gather_fn = encoding_utils.build_encoded_sum_from_model(
+        model_fn, _test_encoder_fn('gather'))
+    self.assertIsInstance(gather_fn, tff.utils.StatefulAggregateFn)
+
+  def test_broadcast_from_model(self):
     model_fn = model_examples.TrainableLinearRegression
     broadcast_fn = encoding_utils.build_encoded_broadcast_from_model(
-        model_fn, _test_encoder_fn())
+        model_fn, _test_encoder_fn('simple'))
     self.assertIsInstance(broadcast_fn, tff.utils.StatefulBroadcastFn)
 
 
@@ -45,12 +52,15 @@ class IterativeProcessTest(test.TestCase, parameterized.TestCase):
 
   def test_iterative_process_with_encoding(self):
     model_fn = model_examples.TrainableLinearRegression
+    gather_fn = encoding_utils.build_encoded_mean_from_model(
+        model_fn, _test_encoder_fn('gather'))
     broadcast_fn = encoding_utils.build_encoded_broadcast_from_model(
-        model_fn, _test_encoder_fn())
+        model_fn, _test_encoder_fn('simple'))
     iterative_process = optimizer_utils.build_model_delta_optimizer_process(
         model_fn=model_fn,
         model_to_client_delta_fn=DummyClientDeltaFn,
         server_optimizer_fn=lambda: tf.keras.optimizers.SGD(learning_rate=1.0),
+        stateful_delta_aggregate_fn=gather_fn,
         stateful_model_broadcast_fn=broadcast_fn)
 
     ds = tf.data.Dataset.from_tensor_slices({
@@ -152,7 +162,8 @@ class PlusOneOverNEncodingStage(te.core.AdaptiveEncodingStageInterface):
   def get_params(self, state):
     """See base class."""
     params = {
-        self.ADD_PARAM_KEY: 1 / tf.to_float(state[self.ITERATION_STATE_KEY])
+        self.ADD_PARAM_KEY:
+            1 / tf.cast(state[self.ITERATION_STATE_KEY], tf.float32)
     }
     return params, params
 
@@ -174,18 +185,25 @@ class PlusOneOverNEncodingStage(te.core.AdaptiveEncodingStageInterface):
     return decoded_x
 
 
-def _test_encoder_fn():
+def _test_encoder_fn(top_level_encoder):
   """Returns an example mapping of tensor to encoder, determined by shape."""
+  if top_level_encoder == 'simple':
+    encoder_constructor = te.encoders.as_simple_encoder
+  elif top_level_encoder == 'gather':
+    encoder_constructor = te.encoders.as_gather_encoder
+  else:
+    raise ValueError('Unknown top_level_encoder.')
+
   identity_encoder = te.encoders.identity()
   test_encoder = te.core.EncoderComposer(PlusOneOverNEncodingStage()).make()
 
   def encoder_fn(tensor):
     if np.prod(tensor.shape) > 1:
-      encoder = te.core.SimpleEncoder(test_encoder,
-                                      tf.TensorSpec(tensor.shape, tensor.dtype))
+      encoder = encoder_constructor(test_encoder,
+                                    tf.TensorSpec(tensor.shape, tensor.dtype))
     else:
-      encoder = te.core.SimpleEncoder(identity_encoder,
-                                      tf.TensorSpec(tensor.shape, tensor.dtype))
+      encoder = encoder_constructor(identity_encoder,
+                                    tf.TensorSpec(tensor.shape, tensor.dtype))
     return encoder
 
   return encoder_fn

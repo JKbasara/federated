@@ -27,8 +27,8 @@ from tensorflow_federated.python.core.api import typed_object
 from tensorflow_federated.python.core.impl import computation_impl
 from tensorflow_federated.python.core.impl import executor_base
 from tensorflow_federated.python.core.impl import executor_value_base
-from tensorflow_federated.python.core.impl import type_serialization
 from tensorflow_federated.python.core.impl import type_utils
+from tensorflow_federated.python.core.impl.compiler import type_serialization
 from tensorflow_federated.python.core.impl.utils import tensorflow_utils
 from tensorflow_federated.python.tensorflow_libs import graph_merge
 
@@ -166,13 +166,13 @@ def embed_tensorflow_computation(comp, type_spec=None, device=None):
 
 
 def to_representation_for_type(value, type_spec=None, device=None):
-  """Verifies or converts the `value` to an eager objct matching `type_spec`.
+  """Verifies or converts the `value` to an eager object matching `type_spec`.
 
   WARNING: This function is only partially implemented. It does not support
   data sets at this point.
 
   The output of this function is always an eager tensor, eager dataset, a
-  representation of a TensorFlow computtion, or a nested structure of those
+  representation of a TensorFlow computation, or a nested structure of those
   that matches `type_spec`, and when `device` has been specified, everything
   is placed on that device on a best-effort basis.
 
@@ -192,34 +192,12 @@ def to_representation_for_type(value, type_spec=None, device=None):
   Raises:
     TypeError: If the `value` is not compatible with `type_spec`.
   """
-  if device is not None:
-    py_typecheck.check_type(device, str)
-    with tf.device(device):
-      return to_representation_for_type(value, type_spec=type_spec, device=None)
   type_spec = type_utils.reconcile_value_with_type_spec(value, type_spec)
-  if isinstance(value, EagerValue):
-    return value.internal_representation
-  if isinstance(value, executor_value_base.ExecutorValue):
-    raise TypeError(
-        'Cannot accept a value embedded within a non-eager executor.')
   if isinstance(value, computation_base.Computation):
     return to_representation_for_type(
         computation_impl.ComputationImpl.get_proto(value), type_spec, device)
-  if isinstance(value, pb.Computation):
+  elif isinstance(value, pb.Computation):
     return embed_tensorflow_computation(value, type_spec, device)
-  if isinstance(type_spec, computation_types.TensorType):
-    if not isinstance(value, tf.Tensor):
-      if isinstance(value, np.ndarray):
-        value = tf.constant(value, dtype=type_spec.dtype)
-      else:
-        value = tf.constant(value, dtype=type_spec.dtype, shape=type_spec.shape)
-    value_type = (
-        computation_types.TensorType(value.dtype.base_dtype, value.shape))
-    if not type_utils.is_assignable_from(type_spec, value_type):
-      raise TypeError(
-          'The apparent type {} of a tensor {} does not match the expected '
-          'type {}.'.format(value_type, value, type_spec))
-    return value
   elif isinstance(type_spec, computation_types.NamedTupleType):
     type_elem = anonymous_tuple.to_elements(type_spec)
     value_elem = (
@@ -236,13 +214,33 @@ def to_representation_for_type(value, type_spec=None, device=None):
       el_repr = to_representation_for_type(el_val, el_type, device)
       result_elem.append((t_name, el_repr))
     return anonymous_tuple.AnonymousTuple(result_elem)
+  elif device is not None:
+    py_typecheck.check_type(device, str)
+    with tf.device(device):
+      return to_representation_for_type(value, type_spec=type_spec, device=None)
+  elif isinstance(value, EagerValue):
+    return value.internal_representation
+  elif isinstance(value, executor_value_base.ExecutorValue):
+    raise TypeError(
+        'Cannot accept a value embedded within a non-eager executor.')
+  elif isinstance(type_spec, computation_types.TensorType):
+    if not isinstance(value, tf.Tensor):
+      if isinstance(value, np.ndarray):
+        value = tf.constant(value, dtype=type_spec.dtype)
+      else:
+        value = tf.constant(value, dtype=type_spec.dtype, shape=type_spec.shape)
+    value_type = (
+        computation_types.TensorType(value.dtype.base_dtype, value.shape))
+    if not type_utils.is_assignable_from(type_spec, value_type):
+      raise TypeError(
+          'The apparent type {} of a tensor {} does not match the expected '
+          'type {}.'.format(value_type, value, type_spec))
+    return value
   elif isinstance(type_spec, computation_types.SequenceType):
     if isinstance(value, list):
       value = tensorflow_utils.make_data_set_from_elements(
           None, value, type_spec.element)
-    py_typecheck.check_type(
-        value,
-        (tf.data.Dataset, tf.compat.v1.data.Dataset, tf.compat.v2.data.Dataset))
+    py_typecheck.check_type(value, type_utils.TF_DATASET_REPRESENTATION_TYPES)
     element_type = type_utils.tf_dtypes_and_shapes_to_type(
         tf.compat.v1.data.get_output_types(value),
         tf.compat.v1.data.get_output_shapes(value))

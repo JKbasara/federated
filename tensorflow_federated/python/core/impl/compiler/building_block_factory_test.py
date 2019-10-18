@@ -13,103 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
-import six
-from six.moves import range
 import tensorflow as tf
 
 from tensorflow_federated.python.common_libs import anonymous_tuple
-from tensorflow_federated.python.common_libs import py_typecheck
 from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.api import placements
-from tensorflow_federated.python.core.impl import intrinsic_defs
-from tensorflow_federated.python.core.impl import placement_literals
-from tensorflow_federated.python.core.impl import tensorflow_deserialization
-from tensorflow_federated.python.core.impl import type_constructors
-from tensorflow_federated.python.core.impl import type_serialization
 from tensorflow_federated.python.core.impl import type_utils
 from tensorflow_federated.python.core.impl.compiler import building_block_factory
 from tensorflow_federated.python.core.impl.compiler import building_blocks
-from tensorflow_federated.python.core.impl.utils import tensorflow_utils
-
-
-def _stamp_value_into_graph(value, type_signature, graph):
-  """Stamps `value` in `graph` as an object of type `type_signature`.
-
-  Args:
-    value: An value to stamp.
-    type_signature: An instance of `computation_types.Type`.
-    graph: The graph to stamp in.
-
-  Returns:
-    A Python object made of tensors stamped into `graph`, `tf.data.Dataset`s,
-    and `anonymous_tuple.AnonymousTuple`s that structurally corresponds to the
-    value passed at input.
-  """
-  py_typecheck.check_type(type_signature, computation_types.Type)
-  py_typecheck.check_type(graph, tf.Graph)
-  if value is None:
-    return None
-  if isinstance(type_signature, computation_types.TensorType):
-    if isinstance(value, np.ndarray):
-      value_type = computation_types.TensorType(
-          tf.dtypes.as_dtype(value.dtype), tf.TensorShape(value.shape))
-      type_utils.check_assignable_from(type_signature, value_type)
-      with graph.as_default():
-        return tf.constant(value)
-    else:
-      with graph.as_default():
-        return tf.constant(
-            value, dtype=type_signature.dtype, shape=type_signature.shape)
-  elif isinstance(type_signature, computation_types.NamedTupleType):
-    if isinstance(value, (list, dict)):
-      value = anonymous_tuple.from_container(value)
-    stamped_elements = []
-    named_type_signatures = anonymous_tuple.to_elements(type_signature)
-    for (name, type_signature), element in zip(named_type_signatures, value):
-      stamped_element = _stamp_value_into_graph(element, type_signature, graph)
-      stamped_elements.append((name, stamped_element))
-    return anonymous_tuple.AnonymousTuple(stamped_elements)
-  elif isinstance(type_signature, computation_types.SequenceType):
-    return tensorflow_utils.make_data_set_from_elements(graph, value,
-                                                        type_signature.element)
-  else:
-    raise NotImplementedError(
-        'Unable to stamp a value of type {} in graph.'.format(type_signature))
-
-
-# TODO(b/139439722): Consolidate implementation to run a TF comp with an arg.
-def _run_tensorflow(computation_proto, arg=None):
-  """Runs a TensorFlow computation with argument `arg`.
-
-  Args:
-    computation_proto: An instance of `pb.Computation`.
-    arg: The argument to invoke the computation with, or None if the computation
-      does not specify a parameter type and does not expects one.
-
-  Returns:
-    The result of the computation.
-  """
-  with tf.Graph().as_default() as graph:
-    type_signature = type_serialization.deserialize_type(computation_proto.type)
-    if type_signature.parameter is not None:
-      stamped_arg = _stamp_value_into_graph(arg, type_signature.parameter,
-                                            graph)
-    else:
-      stamped_arg = None
-    init_op, result = tensorflow_deserialization.deserialize_and_call_tf_computation(
-        computation_proto, stamped_arg, graph)
-  with tf.compat.v1.Session(graph=graph) as sess:
-    if init_op:
-      sess.run(init_op)
-    result = tensorflow_utils.fetch_value_in_session(sess, result)
-  return result
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
+from tensorflow_federated.python.core.impl.compiler import placement_literals
+from tensorflow_federated.python.core.impl.compiler import test_utils
+from tensorflow_federated.python.core.impl.compiler import type_factory
 
 
 class UniqueNameGeneratorTest(absltest.TestCase):
@@ -123,7 +41,7 @@ class UniqueNameGeneratorTest(absltest.TestCase):
   def test_returns_unique_names_with_none_comp_and_none_prefix(self):
     name_generator = building_block_factory.unique_name_generator(
         None, prefix=None)
-    names = set(six.next(name_generator) for _ in range(10))
+    names = set(next(name_generator) for _ in range(10))
     first_name = list(names)[0]
     prefix = first_name[:3]
     self.assertLen(names, 10)
@@ -131,14 +49,14 @@ class UniqueNameGeneratorTest(absltest.TestCase):
 
   def test_returns_unique_names_with_none_comp_and_unset_prefix(self):
     name_generator = building_block_factory.unique_name_generator(None)
-    names = set(six.next(name_generator) for _ in range(10))
+    names = set(next(name_generator) for _ in range(10))
     self.assertLen(names, 10)
     self.assertTrue(all(n.startswith('_var') for n in names))
 
   def test_returns_unique_names_with_none_comp_and_prefix(self):
     name_generator = building_block_factory.unique_name_generator(
         None, prefix='_test')
-    names = set(six.next(name_generator) for _ in range(10))
+    names = set(next(name_generator) for _ in range(10))
     self.assertLen(names, 10)
     self.assertTrue(all(n.startswith('_test') for n in names))
 
@@ -147,7 +65,7 @@ class UniqueNameGeneratorTest(absltest.TestCase):
     comp = building_blocks.Lambda(ref.name, ref.type_signature, ref)
     name_generator = building_block_factory.unique_name_generator(
         comp, prefix=None)
-    names = set(six.next(name_generator) for _ in range(10))
+    names = set(next(name_generator) for _ in range(10))
     first_name = list(names)[0]
     prefix = first_name[:3]
     self.assertLen(names, 10)
@@ -157,7 +75,7 @@ class UniqueNameGeneratorTest(absltest.TestCase):
     ref = building_blocks.Reference('a', tf.int32)
     comp = building_blocks.Lambda(ref.name, ref.type_signature, ref)
     name_generator = building_block_factory.unique_name_generator(comp)
-    names = set(six.next(name_generator) for _ in range(10))
+    names = set(next(name_generator) for _ in range(10))
     self.assertLen(names, 10)
     self.assertTrue(all(n.startswith('_var') for n in names))
 
@@ -166,7 +84,7 @@ class UniqueNameGeneratorTest(absltest.TestCase):
     comp = building_blocks.Lambda(ref.name, ref.type_signature, ref)
     name_generator = building_block_factory.unique_name_generator(
         comp, prefix='_test')
-    names = set(six.next(name_generator) for _ in range(10))
+    names = set(next(name_generator) for _ in range(10))
     self.assertLen(names, 10)
     self.assertTrue(all(n.startswith('_test') for n in names))
 
@@ -175,7 +93,7 @@ class UniqueNameGeneratorTest(absltest.TestCase):
     comp = building_blocks.Lambda(ref.name, ref.type_signature, ref)
     name_generator = building_block_factory.unique_name_generator(
         comp, prefix='_test')
-    names = set(six.next(name_generator) for _ in range(10))
+    names = set(next(name_generator) for _ in range(10))
     first_name = list(names)[0]
     prefix = first_name[:3]
     self.assertNotEqual(prefix, '_test')
@@ -223,7 +141,7 @@ class CreateCompiledIdentityTest(absltest.TestCase):
   def test_integer_identity_acts_as_identity(self):
     int_identity = building_block_factory.create_compiled_identity(tf.int32)
     for k in range(10):
-      result = _run_tensorflow(int_identity.proto, k)
+      result = test_utils.run_tensorflow(int_identity.proto, k)
       self.assertEqual(result, k)
 
   def test_unnamed_tuple_identity_type_signature(self):
@@ -238,7 +156,7 @@ class CreateCompiledIdentityTest(absltest.TestCase):
     tuple_type = [tf.int32, tf.float32]
     tuple_identity = building_block_factory.create_compiled_identity(tuple_type)
     for k in range(10):
-      result = _run_tensorflow(tuple_identity.proto, [k, 10. - k])
+      result = test_utils.run_tensorflow(tuple_identity.proto, [k, 10. - k])
       self.assertLen(result, 2)
       self.assertEqual(result[0], k)
       self.assertEqual(result[1], 10. - k)
@@ -255,7 +173,10 @@ class CreateCompiledIdentityTest(absltest.TestCase):
     tuple_type = [('a', tf.int32), ('b', tf.float32)]
     tuple_identity = building_block_factory.create_compiled_identity(tuple_type)
     for k in range(10):
-      result = _run_tensorflow(tuple_identity.proto, {'a': k, 'b': 10. - k})
+      result = test_utils.run_tensorflow(tuple_identity.proto, {
+          'a': k,
+          'b': 10. - k
+      })
       self.assertLen(result, 2)
       self.assertEqual(result.a, k)
       self.assertEqual(result.b, 10. - k)
@@ -275,7 +196,7 @@ class CreateCompiledIdentityTest(absltest.TestCase):
     sequence_identity = building_block_factory.create_compiled_identity(
         sequence_type)
     seq = list(range(10))
-    result = _run_tensorflow(sequence_identity.proto, seq)
+    result = test_utils.run_tensorflow(sequence_identity.proto, seq)
     self.assertEqual(result, seq)
 
 
@@ -315,7 +236,7 @@ class CreateCompiledInputReplicationTest(absltest.TestCase):
     int_duplicate_input = building_block_factory.create_compiled_input_replication(
         tf.int32, 2)
     for k in range(10):
-      result = _run_tensorflow(int_duplicate_input.proto, k)
+      result = test_utils.run_tensorflow(int_duplicate_input.proto, k)
       self.assertLen(result, 2)
       self.assertEqual(result[0], k)
       self.assertEqual(result[1], k)
@@ -334,7 +255,7 @@ class CreateCompiledInputReplicationTest(absltest.TestCase):
     int_duplicate_input = building_block_factory.create_compiled_input_replication(
         tf.int32, 3)
     for k in range(10):
-      result = _run_tensorflow(int_duplicate_input.proto, k)
+      result = test_utils.run_tensorflow(int_duplicate_input.proto, k)
       self.assertLen(result, 3)
       self.assertEqual(result[0], k)
       self.assertEqual(result[1], k)
@@ -356,7 +277,8 @@ class CreateCompiledInputReplicationTest(absltest.TestCase):
     tuple_duplicate_input = building_block_factory.create_compiled_input_replication(
         tuple_type, 2)
     for k in range(10):
-      result = _run_tensorflow(tuple_duplicate_input.proto, [k, 10. - k])
+      result = test_utils.run_tensorflow(tuple_duplicate_input.proto,
+                                         [k, 10. - k])
       self.assertLen(result, 2)
       self.assertEqual(result[0][0], k)
       self.assertEqual(result[1][0], k)
@@ -379,7 +301,8 @@ class CreateCompiledInputReplicationTest(absltest.TestCase):
     tuple_duplicate_input = building_block_factory.create_compiled_input_replication(
         tuple_type, 2)
     for k in range(10):
-      result = _run_tensorflow(tuple_duplicate_input.proto, [k, 10. - k])
+      result = test_utils.run_tensorflow(tuple_duplicate_input.proto,
+                                         [k, 10. - k])
       self.assertLen(result, 2)
       self.assertEqual(result[0].a, k)
       self.assertEqual(result[1].a, k)
@@ -402,7 +325,7 @@ class CreateCompiledInputReplicationTest(absltest.TestCase):
     sequence_duplicate_input = building_block_factory.create_compiled_input_replication(
         sequence_type, 2)
     seq = list(range(10))
-    result = _run_tensorflow(sequence_duplicate_input.proto, seq)
+    result = test_utils.run_tensorflow(sequence_duplicate_input.proto, seq)
     self.assertLen(result, 2)
     self.assertEqual(result[0], seq)
     self.assertEqual(result[1], seq)
@@ -454,7 +377,7 @@ class CreateFederatedGetattrCompTest(parameterized.TestCase):
     with self.assertRaises(TypeError):
       _ = building_block_factory.create_federated_getattr_comp(
           non_federated_arg, 'a')
-    with self.assertRaisesRegex(ValueError, 'has no element of name c'):
+    with self.assertRaisesRegex(ValueError, 'has no element of name `c`'):
       _ = building_block_factory.create_federated_getattr_comp(
           federated_value, 'c')
 
@@ -499,7 +422,7 @@ class CreateFederatedGetattrCallTest(parameterized.TestCase):
     except TypeError:
       self.fail(
           'Function \'check_federated_type\' raised TypeError unexpectedly.')
-    with self.assertRaisesRegex(ValueError, 'has no element of name c'):
+    with self.assertRaisesRegex(ValueError, 'has no element of name `c`'):
       _ = building_block_factory.create_federated_getattr_call(
           federated_comp_named, 'c')
 
@@ -1012,6 +935,14 @@ class CreateFederatedCollectTest(absltest.TestCase):
 
   def test_returns_federated_collect(self):
     value_type = computation_types.FederatedType(tf.int32, placements.CLIENTS)
+    value = building_blocks.Data('v', value_type)
+    comp = building_block_factory.create_federated_collect(value)
+    self.assertEqual(comp.compact_representation(), 'federated_collect(v)')
+    self.assertEqual(str(comp.type_signature), 'int32*@SERVER')
+
+  def test_constructs_federated_collect_with_all_equal_argument(self):
+    value_type = computation_types.FederatedType(
+        tf.int32, placements.CLIENTS, all_equal=True)
     value = building_blocks.Data('v', value_type)
     comp = building_block_factory.create_federated_collect(value)
     self.assertEqual(comp.compact_representation(), 'federated_collect(v)')
@@ -2094,7 +2025,8 @@ class CreateGenericConstantTest(absltest.TestCase):
     self.assertIsInstance(tensor_zero, building_blocks.Call)
     self.assertTrue(
         np.array_equal(
-            _run_tensorflow(tensor_zero.function.proto), np.zeros([2, 2])))
+            test_utils.run_tensorflow(tensor_zero.function.proto),
+            np.zeros([2, 2])))
 
   def test_create_unnamed_tuple_zero(self):
     tuple_type = [computation_types.TensorType(tf.float32, [2, 2])] * 2
@@ -2102,7 +2034,7 @@ class CreateGenericConstantTest(absltest.TestCase):
     self.assertEqual(tuple_zero.type_signature,
                      computation_types.to_type(tuple_type))
     self.assertIsInstance(tuple_zero, building_blocks.Call)
-    result = _run_tensorflow(tuple_zero.function.proto)
+    result = test_utils.run_tensorflow(tuple_zero.function.proto)
     self.assertLen(result, 2)
     self.assertTrue(np.array_equal(result[0], np.zeros([2, 2])))
     self.assertTrue(np.array_equal(result[1], np.zeros([2, 2])))
@@ -2114,7 +2046,7 @@ class CreateGenericConstantTest(absltest.TestCase):
     self.assertEqual(tuple_zero.type_signature,
                      computation_types.to_type(tuple_type))
     self.assertIsInstance(tuple_zero, building_blocks.Call)
-    result = _run_tensorflow(tuple_zero.function.proto)
+    result = test_utils.run_tensorflow(tuple_zero.function.proto)
     self.assertLen(result, 2)
     self.assertTrue(np.array_equal(result.a, np.ones([2, 2])))
     self.assertTrue(np.array_equal(result.b, np.ones([2, 2])))
@@ -2134,7 +2066,8 @@ class CreateGenericConstantTest(absltest.TestCase):
     self.assertIsInstance(fed_zero.argument, building_blocks.Call)
     self.assertTrue(
         np.array_equal(
-            _run_tensorflow(fed_zero.argument.function.proto), np.ones([2, 2])))
+            test_utils.run_tensorflow(fed_zero.argument.function.proto),
+            np.ones([2, 2])))
 
   def test_create_federated_named_tuple_one(self):
     tuple_type = [('a', computation_types.TensorType(tf.float32, [2, 2])),
@@ -2150,7 +2083,7 @@ class CreateGenericConstantTest(absltest.TestCase):
     self.assertEqual(fed_zero.function.uri,
                      intrinsic_defs.FEDERATED_VALUE_AT_SERVER.uri)
     self.assertIsInstance(fed_zero.argument, building_blocks.Call)
-    result = _run_tensorflow(fed_zero.argument.function.proto)
+    result = test_utils.run_tensorflow(fed_zero.argument.function.proto)
     self.assertLen(result, 2)
     self.assertTrue(np.array_equal(result.a, np.ones([2, 2])))
     self.assertTrue(np.array_equal(result.b, np.ones([2, 2])))
@@ -2170,8 +2103,8 @@ class CreateGenericConstantTest(absltest.TestCase):
     self.assertIsInstance(fed_zero.argument, building_blocks.Call)
     self.assertTrue(
         np.array_equal(
-            _run_tensorflow(fed_zero.argument.function.proto), np.zeros([2,
-                                                                         2])))
+            test_utils.run_tensorflow(fed_zero.argument.function.proto),
+            np.zeros([2, 2])))
 
 
 class CreateSequenceMapTest(absltest.TestCase):
@@ -2555,7 +2488,7 @@ class CreateTensorFlowBroadcastFunctionTest(absltest.TestCase):
     int_identity = building_block_factory.create_tensorflow_to_broadcast_scalar(
         tf.int32, tf.TensorShape([]))
     for k in range(5):
-      result = _run_tensorflow(int_identity.proto, k)
+      result = test_utils.run_tensorflow(int_identity.proto, k)
       self.assertEqual(result, k)
 
   def test_broadcasts_ints_to_nonempty_shape(self):
@@ -2564,15 +2497,15 @@ class CreateTensorFlowBroadcastFunctionTest(absltest.TestCase):
     for k in range(5):
       self.assertTrue(
           np.array_equal(
-              _run_tensorflow(int_broadcast.proto, k), np.array([[k, k], [k,
-                                                                          k]])))
+              test_utils.run_tensorflow(int_broadcast.proto, k),
+              np.array([[k, k], [k, k]])))
 
   def test_broadcasts_bools_to_nonempty_shape(self):
     int_broadcast = building_block_factory.create_tensorflow_to_broadcast_scalar(
         tf.bool, tf.TensorShape([2, 2]))
     self.assertTrue(
         np.array_equal(
-            _run_tensorflow(int_broadcast.proto, True),
+            test_utils.run_tensorflow(int_broadcast.proto, True),
             np.array([[True, True], [True, True]])))
 
 
@@ -2605,13 +2538,13 @@ class CreateTensorFlowBinaryOpTest(absltest.TestCase):
     self.assertEqual(
         integer_division_func.type_signature,
         computation_types.FunctionType([tf.int32, tf.int32], tf.float64))
-    result_1 = _run_tensorflow(integer_division_func.proto, [1, 1])
+    result_1 = test_utils.run_tensorflow(integer_division_func.proto, [1, 1])
     self.assertEqual(result_1, 1)
-    result_2 = _run_tensorflow(integer_division_func.proto, [1, 2])
+    result_2 = test_utils.run_tensorflow(integer_division_func.proto, [1, 2])
     self.assertEqual(result_2, 0.5)
-    result_3 = _run_tensorflow(integer_division_func.proto, [2, 1])
+    result_3 = test_utils.run_tensorflow(integer_division_func.proto, [2, 1])
     self.assertEqual(result_3, 2)
-    result_4 = _run_tensorflow(integer_division_func.proto, [1, 0])
+    result_4 = test_utils.run_tensorflow(integer_division_func.proto, [1, 0])
     self.assertEqual(result_4, np.inf)
 
   def test_divide_unnamed_tuple(self):
@@ -2623,62 +2556,65 @@ class CreateTensorFlowBinaryOpTest(absltest.TestCase):
             [[tf.int32, tf.float32], [tf.int32, tf.float32]],
             [tf.float64, tf.float32]))
     self.assertEqual(
-        _run_tensorflow(division_func.proto, [[1, 0.], [1, 1.]])[0], 1)
+        test_utils.run_tensorflow(division_func.proto, [[1, 0.], [1, 1.]])[0],
+        1)
     self.assertEqual(
-        _run_tensorflow(division_func.proto, [[1, 0.], [1, 1.]])[1], 0.)
+        test_utils.run_tensorflow(division_func.proto, [[1, 0.], [1, 1.]])[1],
+        0.)
 
   def test_divide_named_tuple(self):
     integer_division_func = building_block_factory.create_tensorflow_binary_operator(
         [('a', tf.int32), ('b', tf.float32)], tf.divide)
     self.assertDictEqual(
         anonymous_tuple.to_odict(
-            _run_tensorflow(integer_division_func.proto, [[1, 0.], [1, 1.]])), {
-                'a': 1,
-                'b': 0.
-            })
+            test_utils.run_tensorflow(integer_division_func.proto,
+                                      [[1, 0.], [1, 1.]])), {
+                                          'a': 1,
+                                          'b': 0.
+                                      })
 
   def test_multiply_integers(self):
     integer_multiplication_func = building_block_factory.create_tensorflow_binary_operator(
         tf.int32, tf.multiply)
     self.assertEqual(
-        _run_tensorflow(integer_multiplication_func.proto, [1, 1]), 1)
+        test_utils.run_tensorflow(integer_multiplication_func.proto, [1, 1]), 1)
     self.assertEqual(
-        _run_tensorflow(integer_multiplication_func.proto, [1, 2]), 2)
+        test_utils.run_tensorflow(integer_multiplication_func.proto, [1, 2]), 2)
     self.assertEqual(
-        _run_tensorflow(integer_multiplication_func.proto, [2, 1]), 2)
+        test_utils.run_tensorflow(integer_multiplication_func.proto, [2, 1]), 2)
 
   def test_multiply_named_tuple(self):
     integer_multiplication_func = building_block_factory.create_tensorflow_binary_operator(
         [('a', tf.int32), ('b', tf.float32)], tf.multiply)
     self.assertDictEqual(
         anonymous_tuple.to_odict(
-            _run_tensorflow(integer_multiplication_func.proto,
-                            [[1, 0.], [1, 1.]])), {
-                                'a': 1,
-                                'b': 0.
-                            })
+            test_utils.run_tensorflow(integer_multiplication_func.proto,
+                                      [[1, 0.], [1, 1.]])), {
+                                          'a': 1,
+                                          'b': 0.
+                                      })
     self.assertDictEqual(
         anonymous_tuple.to_odict(
-            _run_tensorflow(integer_multiplication_func.proto,
-                            [[2, 2.], [1, 1.]])), {
-                                'a': 2,
-                                'b': 2.
-                            })
+            test_utils.run_tensorflow(integer_multiplication_func.proto,
+                                      [[2, 2.], [1, 1.]])), {
+                                          'a': 2,
+                                          'b': 2.
+                                      })
 
   def test_add_integers(self):
     integer_add = building_block_factory.create_tensorflow_binary_operator(
         tf.int32, tf.add)
-    result_1 = _run_tensorflow(integer_add.proto, [0, 0])
+    result_1 = test_utils.run_tensorflow(integer_add.proto, [0, 0])
     self.assertEqual(result_1, 0)
-    result_2 = _run_tensorflow(integer_add.proto, [1, 0])
+    result_2 = test_utils.run_tensorflow(integer_add.proto, [1, 0])
     self.assertEqual(result_2, 1)
-    result_3 = _run_tensorflow(integer_add.proto, [0, 1])
+    result_3 = test_utils.run_tensorflow(integer_add.proto, [0, 1])
     self.assertEqual(result_3, 1)
-    result_4 = _run_tensorflow(integer_add.proto, [1, 1])
+    result_4 = test_utils.run_tensorflow(integer_add.proto, [1, 1])
     self.assertEqual(result_4, 2)
 
 
-class TensorFlowConstantTest(absltest.TestCase):
+class CreateTensorFlowConstantTest(absltest.TestCase):
 
   def test_raises_on_none_type_spec(self):
     with self.assertRaises(TypeError):
@@ -2706,8 +2642,14 @@ class TensorFlowConstantTest(absltest.TestCase):
     self.assertIsInstance(tensor_zero, building_blocks.Call)
     self.assertTrue(
         np.array_equal(
-            _run_tensorflow(tensor_zero.function.proto),
+            test_utils.run_tensorflow(tensor_zero.function.proto),
             np.zeros([2, 2], dtype=np.int32)))
+
+  def test_constructs_tensor_zero_with_unknown_shape(self):
+    tensor_zero = building_block_factory.create_tensorflow_constant(
+        computation_types.TensorType(tf.int32, [None, 2]), 0)
+    self.assertIsInstance(tensor_zero, building_blocks.Call)
+    self.assertEqual(str(tensor_zero.type_signature), 'int32[?,2]')
 
   def test_constructs_float_tensor_one(self):
     tensor_one = building_block_factory.create_tensorflow_constant(
@@ -2715,7 +2657,7 @@ class TensorFlowConstantTest(absltest.TestCase):
     self.assertIsInstance(tensor_one, building_blocks.Call)
     self.assertTrue(
         np.array_equal(
-            _run_tensorflow(tensor_one.function.proto),
+            test_utils.run_tensorflow(tensor_one.function.proto),
             np.ones([2, 2], dtype=np.float32)))
 
   def test_constructs_unnamed_tuple_of_float_tensor_ones(self):
@@ -2725,7 +2667,7 @@ class TensorFlowConstantTest(absltest.TestCase):
         tuple_type, 1.)
     self.assertEqual(tuple_of_ones.type_signature, tuple_type)
     self.assertIsInstance(tuple_of_ones, building_blocks.Call)
-    result = _run_tensorflow(tuple_of_ones.function.proto)
+    result = test_utils.run_tensorflow(tuple_of_ones.function.proto)
     self.assertLen(result, 2)
     self.assertTrue(
         np.array_equal(result[0], np.ones([2, 2], dtype=np.float32)))
@@ -2741,7 +2683,7 @@ class TensorFlowConstantTest(absltest.TestCase):
         tuple_type, 1.)
     self.assertEqual(tuple_of_ones.type_signature, tuple_type)
     self.assertIsInstance(tuple_of_ones, building_blocks.Call)
-    result = _run_tensorflow(tuple_of_ones.function.proto)
+    result = test_utils.run_tensorflow(tuple_of_ones.function.proto)
     self.assertLen(result, 2)
     self.assertTrue(np.array_equal(result.a, np.ones([2, 2], dtype=np.float32)))
     self.assertTrue(np.array_equal(result.b, np.ones([2, 2], dtype=np.float32)))
@@ -2755,7 +2697,7 @@ class TensorFlowConstantTest(absltest.TestCase):
         tuple_type, 1.)
     self.assertEqual(tuple_of_ones.type_signature, tuple_type)
     self.assertIsInstance(tuple_of_ones, building_blocks.Call)
-    result = _run_tensorflow(tuple_of_ones.function.proto)
+    result = test_utils.run_tensorflow(tuple_of_ones.function.proto)
     self.assertLen(result, 1)
     self.assertTrue(
         np.array_equal(result[0].a, np.ones([2, 2], dtype=np.float32)))
@@ -2771,7 +2713,7 @@ class TensorFlowConstantTest(absltest.TestCase):
         tuple_type, 1)
     self.assertEqual(tuple_of_ones.type_signature, tuple_type)
     self.assertIsInstance(tuple_of_ones, building_blocks.Call)
-    result = _run_tensorflow(tuple_of_ones.function.proto)
+    result = test_utils.run_tensorflow(tuple_of_ones.function.proto)
     self.assertLen(result, 1)
     self.assertTrue(
         np.array_equal(result[0].a, np.ones([2, 2], dtype=np.int32)))
@@ -2857,7 +2799,7 @@ class BinaryOperatorTest(absltest.TestCase):
         ref.type_signature, tf.multiply)
     self.assertEqual(
         multiplier.type_signature,
-        type_constructors.binary_op(computation_types.to_type(tf.int32)))
+        type_factory.binary_op(computation_types.to_type(tf.int32)))
 
   def test_multiply_federated_integer_type_signature(self):
     ref = building_blocks.Reference(

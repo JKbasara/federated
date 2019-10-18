@@ -226,11 +226,11 @@ additional commentary and examples.
         value that consists of multiple sequences of `XY` coordinates, one
         sequence per client device.
 
-    *   `<weights=float32[10,5],bias[5]>@SERVER` represents a named tuple of
-        weight and bias tensors at the server. Since we've dropped the curly
-        braces, this indicates the `all_equal` bit is set, i.e., there's only a
-        single tuple (regardless of how many server replicas there might be in a
-        cluster hosting this value).
+    *   `<weights=float32[10,5],bias=float32[5]>@SERVER` represents a named
+        tuple of weight and bias tensors at the server. Since we've dropped the
+        curly braces, this indicates the `all_equal` bit is set, i.e., there's
+        only a single tuple (regardless of how many server replicas there might
+        be in a cluster hosting this value).
 
 ### Building Blocks
 
@@ -252,7 +252,7 @@ public API:
 
     ```python
     @tff.tf_computation(tff.SequenceType(tf.int32))
-    def add_up_integeres(x):
+    def add_up_integers(x):
       return x.reduce(np.int32(0), lambda x, y: x + y)
     ```
 
@@ -298,8 +298,8 @@ public API:
 
     For example:
 
-    *   `add_up_integeres(x)` represents an invocation of the TensorFlow
-        computation defined earlier on an argument `x`. The type od this
+    *   `add_up_integers(x)` represents an invocation of the TensorFlow
+        computation defined earlier on an argument `x`. The type of this
         expression is `int32`.
 
     *   `tff.federated_mean(sensor_readings)` represents an invocation of the

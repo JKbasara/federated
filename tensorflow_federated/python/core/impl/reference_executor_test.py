@@ -12,11 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for reference_executor.py."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 
@@ -33,15 +28,15 @@ from tensorflow_federated.python.core.impl import computation_impl
 from tensorflow_federated.python.core.impl import computation_wrapper_instances
 from tensorflow_federated.python.core.impl import context_stack_impl
 from tensorflow_federated.python.core.impl import intrinsic_bodies
-from tensorflow_federated.python.core.impl import intrinsic_defs
 from tensorflow_federated.python.core.impl import intrinsic_factory
 from tensorflow_federated.python.core.impl import reference_executor
 from tensorflow_federated.python.core.impl import transformations
-from tensorflow_federated.python.core.impl import type_constructors
 from tensorflow_federated.python.core.impl import value_impl
 from tensorflow_federated.python.core.impl.compiler import building_block_factory
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
 from tensorflow_federated.python.core.impl.compiler import test_utils
+from tensorflow_federated.python.core.impl.compiler import type_factory
 from tensorflow_federated.python.core.impl.utils import tensorflow_utils
 
 
@@ -620,44 +615,12 @@ class ReferenceExecutorTest(test.TestCase):
                     ]), [('A', tf.float32), ('B', [('C', tf.float32)])]),
                 0.5).value), '<A=5.0,B=<C=10.0>>')
 
-  def test_get_cardinalities_success(self):
-    foo = reference_executor.get_cardinalities(
-        reference_executor.ComputedValue(
-            anonymous_tuple.AnonymousTuple([
-                ('A', [1, 2, 3]),
-                ('B',
-                 anonymous_tuple.AnonymousTuple([('C', [[1, 2], [3, 4], [5,
-                                                                         6]]),
-                                                 ('D', [True, False, True])]))
-            ]),
-            [('A', computation_types.FederatedType(tf.int32,
-                                                   placements.CLIENTS)),
-             ('B', [('C',
-                     computation_types.FederatedType(
-                         computation_types.SequenceType(tf.int32),
-                         placements.CLIENTS)),
-                    ('D',
-                     computation_types.FederatedType(tf.bool,
-                                                     placements.CLIENTS))])]))
-    self.assertDictEqual(foo, {placements.CLIENTS: 3})
-
-  def test_get_cardinalities_failure(self):
-    with self.assertRaises(ValueError):
-      reference_executor.get_cardinalities(
-          reference_executor.ComputedValue(
-              anonymous_tuple.AnonymousTuple([('A', [1, 2, 3]), ('B', [1, 2])]),
-              [('A',
-                computation_types.FederatedType(tf.int32, placements.CLIENTS)),
-               ('B',
-                computation_types.FederatedType(tf.int32, placements.CLIENTS))
-              ]))
-
   def test_fit_argument(self):
     old_arg = reference_executor.ComputedValue(
         anonymous_tuple.AnonymousTuple([('A', 10)]),
-        [('A', type_constructors.at_clients(tf.int32, all_equal=True))])
+        [('A', type_factory.at_clients(tf.int32, all_equal=True))])
     new_arg = reference_executor.fit_argument(
-        old_arg, [('A', type_constructors.at_clients(tf.int32))],
+        old_arg, [('A', type_factory.at_clients(tf.int32))],
         reference_executor.ComputationContext(
             cardinalities={placements.CLIENTS: 3}))
     self.assertEqual(str(new_arg.type_signature), '<A={int32}@CLIENTS>')

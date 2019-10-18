@@ -25,9 +25,9 @@ import six
 from tensorflow_federated.python.common_libs import py_typecheck
 from tensorflow_federated.python.core import api as tff
 from tensorflow_federated.python.core import framework as tff_framework
-from tensorflow_federated.python.core import utils as tff_utils
 from tensorflow_federated.python.core.backends.mapreduce import canonical_form
 from tensorflow_federated.python.core.backends.mapreduce import transformations
+from tensorflow_federated.python.core.utils import computation_utils
 
 
 def get_iterative_process_for_canonical_form(cf):
@@ -48,9 +48,10 @@ def get_iterative_process_for_canonical_form(cf):
   def init_computation():
     return tff.federated_value(cf.initialize(), tff.SERVER)
 
-  @tff.federated_computation(
-      init_computation.type_signature.result,
-      tff.FederatedType(cf.work.type_signature.parameter[0], tff.CLIENTS))
+  @tff.federated_computation(init_computation.type_signature.result,
+                             tff.FederatedType(
+                                 cf.work.type_signature.parameter[0],
+                                 tff.CLIENTS))
   def next_computation(arg):
     """The logic of a single MapReduce sprocessing round."""
     s1 = arg[0]
@@ -61,15 +62,15 @@ def get_iterative_process_for_canonical_form(cf):
     c4 = tff.federated_map(cf.work, c3)
     c5 = c4[0]
     c6 = c4[1]
-    s3 = tff.federated_aggregate(
-        c5, cf.zero(), cf.accumulate, cf.merge, cf.report)
+    s3 = tff.federated_aggregate(c5, cf.zero(), cf.accumulate, cf.merge,
+                                 cf.report)
     s4 = tff.federated_zip([s1, s3])
     s5 = tff.federated_apply(cf.update, s4)
     s6 = s5[0]
     s7 = s5[1]
     return s6, s7, c6
 
-  return tff_utils.IterativeProcess(init_computation, next_computation)
+  return computation_utils.IterativeProcess(init_computation, next_computation)
 
 
 def pack_initialize_comp_type_signature(type_spec):
@@ -602,13 +603,23 @@ def get_canonical_form_for_iterative_process(iterative_process):
     transformations.CanonicalFormCompilationError: If the compilation
       process fails.
   """
-  py_typecheck.check_type(iterative_process, tff_utils.IterativeProcess)
+  py_typecheck.check_type(iterative_process, computation_utils.IterativeProcess)
 
   initialize_comp = tff_framework.ComputationBuildingBlock.from_proto(
       iterative_process.initialize._computation_proto)  # pylint: disable=protected-access
 
   next_comp = tff_framework.ComputationBuildingBlock.from_proto(
       iterative_process.next._computation_proto)  # pylint: disable=protected-access
+
+  if not (isinstance(next_comp.type_signature.parameter, tff.NamedTupleType) and
+          isinstance(next_comp.type_signature.result, tff.NamedTupleType)):
+    raise TypeError(
+        'Any IterativeProcess compatible with CanonicalForm must '
+        'have a `next` function which takes and returns instances '
+        'of `tff.NamedTupleType`; your next function takes '
+        'parameters of type {} and returns results of type {}'.format(
+            next_comp.type_signature.parameter,
+            next_comp.type_signature.result))
 
   if len(next_comp.type_signature.result) == 2:
     next_result = next_comp.result

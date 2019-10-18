@@ -181,8 +181,8 @@ class CachingExecutor(executor_base.Executor):
 
     Args:
       target_executor: An instance of `executor_base.Executor`.
-      cache: The cache to use (must be an instance of `cachetools.Cache`).
-        If unspecified, by default we construct a 1000-element LRU cache.
+      cache: The cache to use (must be an instance of `cachetools.Cache`). If
+        unspecified, by default we construct a 1000-element LRU cache.
     """
     py_typecheck.check_type(target_executor, executor_base.Executor)
     if cache is not None:
@@ -223,8 +223,9 @@ class CachingExecutor(executor_base.Executor):
       # which may be a legitimate use case if (as it happens) the payload alone
       # does not uniquely determine the type, so we simply opt not to reuse the
       # cache value and fallback on the regular behavior.
-      if type_spec is not None and not type_utils.are_equivalent_types(
-          cached_value.type_signature, type_spec):
+      if (cached_value is not None and
+          type_spec is not None and not type_utils.are_equivalent_types(
+              cached_value.type_signature, type_spec)):
         identifier = None
     else:
       identifier = None
@@ -239,8 +240,10 @@ class CachingExecutor(executor_base.Executor):
       cached_value = CachedValue(identifier, hashable_key, type_spec,
                                  target_future)
       self._cache[identifier] = cached_value
-    target_value = await cached_value.target_future
-    type_utils.check_assignable_from(type_spec, target_value.type_signature)
+    await cached_value.target_future
+    # No type check is necessary here; we have either checked
+    # `type_utils.are_equivalent_types` or just constructed `target_value`
+    # explicitly with `type_spec`.
     return cached_value
 
   async def create_call(self, comp, arg=None):

@@ -35,17 +35,17 @@ from tensorflow_federated.python.core.impl.compiler.building_blocks import Place
 from tensorflow_federated.python.core.impl.compiler.building_blocks import Reference
 from tensorflow_federated.python.core.impl.compiler.building_blocks import Selection
 from tensorflow_federated.python.core.impl.compiler.building_blocks import Tuple
+from tensorflow_federated.python.core.impl.compiler.intrinsic_defs import FEDERATED_AGGREGATE
+from tensorflow_federated.python.core.impl.compiler.intrinsic_defs import FEDERATED_APPLY
+from tensorflow_federated.python.core.impl.compiler.intrinsic_defs import FEDERATED_BROADCAST
+from tensorflow_federated.python.core.impl.compiler.intrinsic_defs import FEDERATED_MAP
+from tensorflow_federated.python.core.impl.compiler.intrinsic_defs import FEDERATED_MAP_ALL_EQUAL
+from tensorflow_federated.python.core.impl.compiler.transformation_utils import transform_postorder
 from tensorflow_federated.python.core.impl.compiler.tree_analysis import check_broadcast_not_dependent_on_aggregate
 from tensorflow_federated.python.core.impl.compiler.tree_analysis import check_has_unique_names
 from tensorflow_federated.python.core.impl.compiler.tree_analysis import check_intrinsics_whitelisted_for_reduction
 from tensorflow_federated.python.core.impl.computation_wrapper_instances import building_block_to_computation
-from tensorflow_federated.python.core.impl.intrinsic_defs import FEDERATED_AGGREGATE
-from tensorflow_federated.python.core.impl.intrinsic_defs import FEDERATED_APPLY
-from tensorflow_federated.python.core.impl.intrinsic_defs import FEDERATED_BROADCAST
-from tensorflow_federated.python.core.impl.intrinsic_defs import FEDERATED_MAP
-from tensorflow_federated.python.core.impl.intrinsic_defs import FEDERATED_MAP_ALL_EQUAL
 from tensorflow_federated.python.core.impl.intrinsic_reductions import replace_intrinsics_with_bodies
-from tensorflow_federated.python.core.impl.transformation_utils import transform_postorder
 from tensorflow_federated.python.core.impl.transformations import get_map_of_unbound_references
 from tensorflow_federated.python.core.impl.transformations import inline_block_locals
 from tensorflow_federated.python.core.impl.transformations import insert_called_tf_identity_at_leaves
@@ -72,11 +72,13 @@ if six.PY3:
   # pylint: disable=g-import-not-at-top
   try:
     from tensorflow_federated.python.core.impl.caching_executor import CachingExecutor
+    from tensorflow_federated.python.core.impl.composite_executor import CompositeExecutor
     from tensorflow_federated.python.core.impl.concurrent_executor import ConcurrentExecutor
     from tensorflow_federated.python.core.impl.eager_executor import EagerExecutor
     from tensorflow_federated.python.core.impl.executor_base import Executor
     from tensorflow_federated.python.core.impl.executor_service import ExecutorService
     from tensorflow_federated.python.core.impl.executor_stacks import create_local_executor
+    from tensorflow_federated.python.core.impl.executor_stacks import create_worker_pool_executor
     from tensorflow_federated.python.core.impl.executor_value_base import ExecutorValue
     from tensorflow_federated.python.core.impl.federated_executor import FederatedExecutor
     from tensorflow_federated.python.core.impl.lambda_executor import LambdaExecutor
@@ -93,6 +95,7 @@ _allowed_symbols = [
     "CachingExecutor",
     "Call",
     "CompiledComputation",
+    "CompositeExecutor",
     "ComputationBuildingBlock",
     "ConcurrentExecutor",
     "EagerExecutor",
@@ -123,6 +126,7 @@ _allowed_symbols = [
     "create_federated_map_or_apply",
     "create_federated_zip",
     "create_local_executor",
+    "create_worker_pool_executor",
     "get_map_of_unbound_references",
     "inline_block_locals",
     "insert_called_tf_identity_at_leaves",

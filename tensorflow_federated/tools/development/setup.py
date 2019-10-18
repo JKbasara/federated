@@ -69,15 +69,19 @@ with open('tensorflow_federated/version.py') as fp:
   VERSION = globals_dict['__version__']
 
 REQUIRED_PACKAGES = [
+    'absl-py~=0.7',
     'attrs~=18.2',
     'cachetools~=3.1.1',
+    'enum34~=1.1',
+    'grpcio~=1.22.0',
     'h5py~=2.6',
     'numpy~=1.14',
+    'portpicker~=1.3.1',
     'six~=1.10',
-    'tf-nightly==1.15.0.dev20190805',
-    'grpcio~=1.22.0',
-    'portpicker',
-    'tensorflow-model-optimization~=0.1.2',
+    'tensorflow-model-optimization~=0.1.3',
+    'tensorflow-privacy~=0.2.0',
+    'tf-nightly',
+    'tfa-nightly',
 ]
 
 setuptools.setup(

@@ -12,11 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for type_utils.py."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 
@@ -30,11 +25,9 @@ from tensorflow_federated.python.common_libs import test
 from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.api import computations
 from tensorflow_federated.python.core.api import placements
-from tensorflow_federated.python.core.impl import context_stack_impl
-from tensorflow_federated.python.core.impl import type_constructors
 from tensorflow_federated.python.core.impl import type_utils
-from tensorflow_federated.python.core.impl import value_impl
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import type_factory
 
 
 class TypeUtilsTest(test.TestCase, parameterized.TestCase):
@@ -42,13 +35,10 @@ class TypeUtilsTest(test.TestCase, parameterized.TestCase):
   def test_infer_type_with_none(self):
     self.assertEqual(type_utils.infer_type(None), None)
 
-  def test_infer_type_with_tff_value(self):
+  def test_infer_type_with_typed_object(self):
     self.assertEqual(
-        str(
-            type_utils.infer_type(
-                value_impl.ValueImpl(
-                    building_blocks.Reference('foo', tf.bool),
-                    context_stack_impl.context_stack))), 'bool')
+        type_utils.infer_type(building_blocks.Reference(
+            'foo', tf.bool)).compact_representation(), 'bool')
 
   def test_infer_type_with_scalar_int_tensor(self):
     self.assertEqual(str(type_utils.infer_type(tf.constant(1))), 'int32')
@@ -1110,23 +1100,28 @@ class TypeUtilsTest(test.TestCase, parameterized.TestCase):
     self.assertRaises(TypeError, type_utils.check_federated_type, type_spec,
                       None, None, True)
 
-  def test_is_anon_tuple_with_py_container(self):
+
+class IsAnonTupleWithPyContainerTest(test.TestCase):
+
+  def test_returns_true(self):
+    value = anonymous_tuple.AnonymousTuple([('a', 0.0)])
+    type_spec = computation_types.NamedTupleTypeWithPyContainerType(
+        [('a', tf.float32)], dict)
     self.assertTrue(
-        type_utils.is_anon_tuple_with_py_container(
-            anonymous_tuple.AnonymousTuple([('a', 0.0)]),
-            computation_types.NamedTupleTypeWithPyContainerType(
-                [('a', tf.float32)], dict)))
+        type_utils.is_anon_tuple_with_py_container(value, type_spec))
+
+  def test_returns_false_with_none_value(self):
+    value = None
+    type_spec = computation_types.NamedTupleTypeWithPyContainerType(
+        [('a', tf.float32)], dict)
     self.assertFalse(
-        type_utils.is_anon_tuple_with_py_container(
-            value_impl.ValueImpl(
-                building_blocks.Data('nothing', tf.int32),
-                context_stack_impl.context_stack),
-            computation_types.NamedTupleTypeWithPyContainerType(
-                [('a', tf.float32)], dict)))
+        type_utils.is_anon_tuple_with_py_container(value, type_spec))
+
+  def test_returns_false_with_named_tuple_type_spec(self):
+    value = anonymous_tuple.AnonymousTuple([('a', 0.0)])
+    type_spec = computation_types.NamedTupleType([('a', tf.float32)])
     self.assertFalse(
-        type_utils.is_anon_tuple_with_py_container(
-            anonymous_tuple.AnonymousTuple([('a', 0.0)]),
-            computation_types.NamedTupleType([('a', tf.float32)])))
+        type_utils.is_anon_tuple_with_py_container(value, type_spec))
 
 
 class ConvertToPyContainerTest(test.TestCase):
@@ -1769,12 +1764,10 @@ class IsBinaryOpWithUpcastCompatibleTest(test.TestCase):
 
   def check_valid_federated_weighted_mean_argument_tuple_type(self):
     type_utils.check_valid_federated_weighted_mean_argument_tuple_type(
-        computation_types.to_type([type_constructors.at_clients(tf.float32)] *
-                                  2))
+        computation_types.to_type([type_factory.at_clients(tf.float32)] * 2))
     with self.assertRaises(TypeError):
       type_utils.check_valid_federated_weighted_mean_argument_tuple_type(
-          computation_types.to_type([type_constructors.at_clients(tf.int32)] *
-                                    2))
+          computation_types.to_type([type_factory.at_clients(tf.int32)] * 2))
 
 
 if __name__ == '__main__':

@@ -24,13 +24,13 @@ from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.api import placements
 from tensorflow_federated.python.core.api import value_base
 from tensorflow_federated.python.core.impl import context_stack_base
-from tensorflow_federated.python.core.impl import intrinsic_defs
-from tensorflow_federated.python.core.impl import type_constructors
 from tensorflow_federated.python.core.impl import type_utils
 from tensorflow_federated.python.core.impl import value_impl
 from tensorflow_federated.python.core.impl import value_utils
 from tensorflow_federated.python.core.impl.compiler import building_block_factory
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
+from tensorflow_federated.python.core.impl.compiler import type_factory
 
 
 class IntrinsicFactory(object):
@@ -69,10 +69,6 @@ class IntrinsicFactory(object):
 
     zero = value_impl.to_value(zero, None, self._context_stack)
     py_typecheck.check_type(zero, value_base.Value)
-
-    # TODO(b/113112108): We need a check here that zero does not have federated
-    # constituents.
-
     accumulate = value_impl.to_value(accumulate, None, self._context_stack)
     merge = value_impl.to_value(merge, None, self._context_stack)
     report = value_impl.to_value(report, None, self._context_stack)
@@ -80,12 +76,19 @@ class IntrinsicFactory(object):
       py_typecheck.check_type(op, value_base.Value)
       py_typecheck.check_type(op.type_signature, computation_types.FunctionType)
 
-    accumulate_type_expected = type_constructors.reduction_op(
-        zero.type_signature, value.type_signature.member)
-    merge_type_expected = type_constructors.reduction_op(
-        zero.type_signature, zero.type_signature)
+    if not type_utils.is_assignable_from(accumulate.type_signature.parameter[0],
+                                         zero.type_signature):
+      raise TypeError('Expected `zero` to be assignable to type {}, '
+                      'but was of incompatible type {}.'.format(
+                          accumulate.type_signature.parameter[0],
+                          zero.type_signature))
+
+    accumulate_type_expected = type_factory.reduction_op(
+        accumulate.type_signature.result, value.type_signature.member)
+    merge_type_expected = type_factory.reduction_op(
+        accumulate.type_signature.result, accumulate.type_signature.result)
     report_type_expected = computation_types.FunctionType(
-        zero.type_signature, report.type_signature.result)
+        merge.type_signature.result, report.type_signature.result)
     for op_name, op, type_expected in [
         ('accumulate', accumulate, accumulate_type_expected),
         ('merge', merge, merge_type_expected),
@@ -101,6 +104,7 @@ class IntrinsicFactory(object):
     accumulate = value_impl.ValueImpl.get_comp(accumulate)
     merge = value_impl.ValueImpl.get_comp(merge)
     report = value_impl.ValueImpl.get_comp(report)
+
     comp = building_block_factory.create_federated_aggregate(
         value, zero, accumulate, merge, report)
     return value_impl.ValueImpl(comp, self._context_stack)
@@ -365,8 +369,8 @@ class IntrinsicFactory(object):
     op = value_impl.to_value(op, None, self._context_stack)
     py_typecheck.check_type(op, value_base.Value)
     py_typecheck.check_type(op.type_signature, computation_types.FunctionType)
-    op_type_expected = type_constructors.reduction_op(
-        zero.type_signature, value.type_signature.member)
+    op_type_expected = type_factory.reduction_op(zero.type_signature,
+                                                 value.type_signature.member)
     if not type_utils.is_assignable_from(op_type_expected, op.type_signature):
       raise TypeError('Expected an operator of type {}, got {}.'.format(
           op_type_expected, op.type_signature))
@@ -534,8 +538,8 @@ class IntrinsicFactory(object):
       py_typecheck.check_type(value.type_signature.member,
                               computation_types.SequenceType)
       element_type = value.type_signature.member.element
-    op_type_expected = type_constructors.reduction_op(zero.type_signature,
-                                                      element_type)
+    op_type_expected = type_factory.reduction_op(zero.type_signature,
+                                                 element_type)
     if not type_utils.is_assignable_from(op_type_expected, op.type_signature):
       raise TypeError('Expected an operator of type {}, got {}.'.format(
           op_type_expected, op.type_signature))

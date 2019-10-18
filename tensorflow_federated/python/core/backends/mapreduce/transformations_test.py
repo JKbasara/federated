@@ -13,10 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl.testing import absltest
 import tensorflow as tf
 
@@ -28,12 +24,12 @@ from tensorflow_federated.python.core.backends.mapreduce import canonical_form_u
 from tensorflow_federated.python.core.backends.mapreduce import test_utils
 from tensorflow_federated.python.core.backends.mapreduce import transformations as mapreduce_transformations
 from tensorflow_federated.python.core.impl import computation_wrapper_instances
-from tensorflow_federated.python.core.impl import intrinsic_defs
-from tensorflow_federated.python.core.impl import transformation_utils
 from tensorflow_federated.python.core.impl import transformations
 from tensorflow_federated.python.core.impl.compiler import building_block_analysis
 from tensorflow_federated.python.core.impl.compiler import building_block_factory
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import intrinsic_defs
+from tensorflow_federated.python.core.impl.compiler import transformation_utils
 from tensorflow_federated.python.core.impl.compiler import tree_analysis
 
 
@@ -735,5 +731,5 @@ class NormalizedBitTest(absltest.TestCase):
 
 
 if __name__ == '__main__':
-  tf.enable_v2_behavior()
+  tf.compat.v1.enable_v2_behavior()
   absltest.main()

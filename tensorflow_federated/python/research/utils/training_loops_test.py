@@ -12,20 +12,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""End-to-end example testing training_loop against the EMNIST model."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 
 import numpy as np
 import tensorflow as tf
-
 import tensorflow_federated as tff
-from tensorflow_federated.python.examples.mnist import models
+
 from tensorflow_federated.python.research.utils import training_loops
+
+
+_Batch = collections.namedtuple('Batch', ['x', 'y'])
+
+
+def _create_random_batch():
+  return _Batch(
+      x=tf.random.uniform(tf.TensorShape([1, 784]), dtype=tf.float32),
+      y=tf.constant(1, dtype=tf.int64, shape=[1, 1]))
+
+
+def _model_fn():
+  keras_model = tff.simulation.models.mnist.create_keras_model(
+      compile_model=True)
+  batch = _create_random_batch()
+  return tff.learning.from_compiled_keras_model(keras_model, batch)
 
 
 class TrainingLoopsTest(tf.test.TestCase):
@@ -47,14 +57,15 @@ class TrainingLoopsTest(tf.test.TestCase):
     def metrics_hook(state, metrics, round_num):
       del round_num
       del metrics
-      keras_model = models.create_keras_model(compile_model=True)
+      keras_model = tff.simulation.models.mnist.create_keras_model(
+          compile_model=True)
       tff.learning.assign_weights_to_keras_model(keras_model, state.model)
       loss_list.append(keras_model.test_on_batch(batch.x, batch.y))
 
     server_optimizer_fn = lambda: tf.keras.optimizers.SGD(learning_rate=1.0)
 
     training_loops.federated_averaging_training_loop(
-        models.model_fn,
+        _model_fn,
         server_optimizer_fn,
         client_datasets_fn,
         total_rounds=3,

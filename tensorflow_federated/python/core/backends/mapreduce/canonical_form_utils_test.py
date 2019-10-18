@@ -13,10 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 
 from absl.testing import absltest
@@ -34,6 +30,19 @@ from tensorflow_federated.python.core.utils import computation_utils
 
 
 class CanonicalFormUtilsTest(absltest.TestCase):
+
+  def test_tensor_computation_fails_well(self):
+    cf = test_utils.get_temperature_sensor_example()
+    it = canonical_form_utils.get_iterative_process_for_canonical_form(cf)
+    init_result = it.initialize.type_signature.result
+    lam = building_blocks.Lambda('x', init_result,
+                                 building_blocks.Reference('x', init_result))
+    bad_it = computation_utils.IterativeProcess(
+        it.initialize,
+        computation_wrapper_instances.building_block_to_computation(lam))
+    with self.assertRaisesRegex(TypeError,
+                                'instances of `tff.NamedTupleType`.'):
+      canonical_form_utils.get_canonical_form_for_iterative_process(bad_it)
 
   def test_broadcast_dependent_on_aggregate_fails_well(self):
     cf = test_utils.get_temperature_sensor_example()
@@ -77,8 +86,7 @@ class CanonicalFormUtilsTest(absltest.TestCase):
     self.assertCountEqual([x.num_readings for x in stats], [1, 1, 1, 1])
 
   def test_get_canonical_form_for_iterative_process(self):
-    cf = test_utils.get_temperature_sensor_example()
-    it = canonical_form_utils.get_iterative_process_for_canonical_form(cf)
+    it = test_utils.get_iterative_process_for_canonical_form_example()
     cf = canonical_form_utils.get_canonical_form_for_iterative_process(it)
     self.assertIsInstance(cf, canonical_form.CanonicalForm)
 
@@ -88,7 +96,7 @@ class CanonicalFormUtilsTest(absltest.TestCase):
     cf = canonical_form_utils.get_canonical_form_for_iterative_process(it)
     self.assertIsInstance(cf, canonical_form.CanonicalForm)
 
-  def test_temperature_example_round_trip_(self):
+  def test_temperature_example_round_trip(self):
     it = canonical_form_utils.get_iterative_process_for_canonical_form(
         test_utils.get_temperature_sensor_example())
     cf = canonical_form_utils.get_canonical_form_for_iterative_process(it)
@@ -383,5 +391,5 @@ class TypeCheckTest(absltest.TestCase):
 
 
 if __name__ == '__main__':
-  tf.enable_v2_behavior()
+  tf.compat.v1.enable_v2_behavior()
   absltest.main()

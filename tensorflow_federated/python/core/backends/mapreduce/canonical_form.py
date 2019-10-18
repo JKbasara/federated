@@ -277,10 +277,17 @@ class CanonicalForm(object):
         are represented by TFF does not match what this code is expecting (this
         is an internal error that requires code update).
     """
-    for comp in [
-        initialize, prepare, work, zero, accumulate, merge, report, update
+    for label, comp in [
+        ('initialize', initialize),
+        ('prepare', prepare),
+        ('work', work),
+        ('zero', zero),
+        ('accumulate', accumulate),
+        ('merge', merge),
+        ('report', report),
+        ('update', update),
     ]:
-      py_typecheck.check_type(comp, tff.Computation)
+      py_typecheck.check_type(comp, tff.Computation, label)
 
       # TODO(b/130633916): Remove private access once an appropriate API for it
       # becomes available.
@@ -408,3 +415,25 @@ class CanonicalForm(object):
   @property
   def update(self):
     return self._update
+
+  def summary(self, print_fn=print):
+    """Prints a string summary of the `CanonicalForm`.
+
+    Arguments:
+      print_fn: Print function to use. It will be called on each line of the
+        summary in order to capture the string summary.
+    """
+    computations = [
+        ('initialize', self.initialize),
+        ('prepare', self.prepare),
+        ('work', self.work),
+        ('zero', self.zero),
+        ('accumulate', self.accumulate),
+        ('merge', self.merge),
+        ('report', self.report),
+        ('update', self.initialize),
+    ]
+    for name, comp in computations:
+      # Add sufficient padding to align first column; len('initialize') == 10
+      print_fn('{:<10}: {}'.format(
+          name, comp.type_signature.compact_representation()))

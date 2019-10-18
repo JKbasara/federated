@@ -21,13 +21,14 @@ from __future__ import print_function
 import abc
 import collections
 
+from typing import Any
 import attr
 import six
 import tensorflow as tf
 
 from tensorflow_federated.python.common_libs import anonymous_tuple
 from tensorflow_federated.python.common_libs import py_typecheck
-from tensorflow_federated.python.core.impl import placement_literals
+from tensorflow_federated.python.core.impl.compiler import placement_literals
 from tensorflow_federated.python.tensorflow_libs import tensor_utils
 
 
@@ -152,6 +153,7 @@ class NamedTupleType(anonymous_tuple.AnonymousTuple, Type):
     """
     py_typecheck.check_type(elements, (list, tuple, collections.OrderedDict))
     if py_typecheck.is_named_tuple(elements):
+      elements = elements  # type: Any
       elements = elements._asdict()
     if isinstance(elements, collections.OrderedDict):
       elements = list(elements.items())
@@ -183,7 +185,7 @@ class NamedTupleType(anonymous_tuple.AnonymousTuple, Type):
       return repr(value)
 
     return 'NamedTupleType([{}])'.format(', '.join(
-        _element_repr(e) for e in anonymous_tuple.to_elements(self)))
+        _element_repr(e) for e in anonymous_tuple.iter_elements(self)))
 
   def __eq__(self, other):
     return (isinstance(other, NamedTupleType) and
@@ -424,9 +426,7 @@ def to_type(spec):
   elif isinstance(spec, collections.OrderedDict):
     return NamedTupleTypeWithPyContainerType(spec, type(spec))
   elif py_typecheck.is_attrs(spec):
-    return NamedTupleTypeWithPyContainerType(
-        attr.asdict(spec, dict_factory=collections.OrderedDict, recurse=False),
-        type(spec))
+    return _to_type_from_attrs(spec)
   elif isinstance(spec, collections.Mapping):
     # This is an unsupported mapping, likely a `dict`. NamedTupleType adds an
     # ordering, which the original container did not have.
@@ -439,19 +439,41 @@ def to_type(spec):
             py_typecheck.type_string(type(spec))))
 
 
+def _to_type_from_attrs(spec):
+  """Converts an `attr.s` class or instance to a `tff.Type`."""
+  if isinstance(spec, type):
+    # attrs class type, introspect the attributes for their type annotations.
+    elements = [(a.name, a.type) for a in attr.fields(spec)]
+    missing_types = [n for (n, t) in elements if not t]
+    if missing_types:
+      raise TypeError((
+          "Cannot infer tff.Type for attr.s class '{}' because some attributes "
+          'were missing type specifications: {}').format(
+              spec.__name__, missing_types))
+    the_type = spec
+  else:
+    # attrs class instance, inspect the field values for instances convertible
+    # to types.
+    elements = attr.asdict(
+        spec, dict_factory=collections.OrderedDict, recurse=False)
+    the_type = type(spec)
+
+  return NamedTupleTypeWithPyContainerType(elements, the_type)
+
+
 def _string_representation(type_spec, formatted):
   """Returns the string representation of a TFF `Type`.
 
-  This functions creates a `list` of strings representing the given `type_spec`;
+  This function creates a `list` of strings representing the given `type_spec`;
   combines the strings in either a formatted or un-formatted representation; and
-  returns the resulting string represetnation.
+  returns the resulting string representation.
 
   Args:
     type_spec: An instance of a TFF `Type`.
     formatted: A boolean indicating if the returned string should be formatted.
 
   Raises:
-    TypeError: If `type_spec` has an unepxected type.
+    TypeError: If `type_spec` has an unexpected type.
   """
   py_typecheck.check_type(type_spec, Type)
 

@@ -21,6 +21,7 @@ from __future__ import print_function
 import inspect
 import types
 
+import attr
 import six
 from six.moves import range
 
@@ -66,46 +67,94 @@ def is_defun(fn):
           'def_function.Function' in py_typecheck.type_string(type(fn)))
 
 
+@attr.s(slots=True, frozen=True)
+class SimpleArgSpec(object):
+  """A simple container class that mimics the deprecated `inspect.ArgSpec`."""
+  args = attr.ib()
+  varargs = attr.ib()
+  keywords = attr.ib()
+  defaults = attr.ib()
+
+  def __str__(self):
+    parts = []
+    if self.args:
+      parts.append('args={}'.format(self.args))
+    if self.varargs:
+      parts.append('varargs={}'.format(self.varargs))
+    if self.keywords:
+      parts.append('kwargs={}'.format(self.keywords))
+    if self.defaults:
+      parts.append('defaults={}'.format(self.defaults))
+    return '({})'.format(', '.join(parts))
+
+
 def get_argspec(fn):
-  """Returns the inspect.ArgSpec structure for the given function/defun `fn`.
+  """Returns the `SimpleArgSpec` structure for the given function.
 
   Args:
-    fn: The Python function or defun to analyze.
+    fn: The Python function or Tensorflow function to analyze.
 
   Returns:
-    The corresponding instance of inspect.ArgSpec.
+    A `SimpleArgSpec`.
 
   Raises:
     TypeError: if the argument is not of a supported type.
   """
+
+  def _getargspec(fn):
+    """Get the argspec depending on the version of Python being used."""
+    if six.PY2:
+      argspec = inspect.getargspec(fn)  # pylint: disable=deprecated-method
+      return SimpleArgSpec(*argspec)
+    else:
+      signature = inspect.signature(fn)
+      args = []
+      varargs = None
+      keywords = None
+      defaults = None
+      for param in signature.parameters.values():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+          keywords = param.name
+        elif param.kind == inspect.Parameter.VAR_POSITIONAL:
+          varargs = param.name
+        else:
+          args.append(param.name)
+        if param.default != inspect.Parameter.empty:
+          if defaults is None:
+            defaults = [param.default]
+          else:
+            defaults.append(param.default)
+      return SimpleArgSpec(args, varargs, keywords,
+                           tuple(defaults) if defaults else None)
+
   if isinstance(fn, types.FunctionType):
-    return inspect.getargspec(fn)  # pylint: disable=deprecated-method
+    return _getargspec(fn)
   elif is_defun(fn):
-    return inspect.getargspec(fn.python_function)  # pylint: disable=deprecated-method
+    return _getargspec(fn.python_function)
   else:
     raise TypeError('Expected a Python function or a defun, found {}.'.format(
         py_typecheck.type_string(type(fn))))
 
 
 def get_callargs_for_argspec(argspec, *args, **kwargs):
-  """Similar to inspect.getcallargs(), but accepts inspect.ArgSpec instead.
+  """Similar to `inspect.getcallargs()`, but accepts SimpleArgSpec instead.
 
-  This function allows getcallargs() capability to be used with defuns and
+  This function allows `getcallargs()` capability to be used with defuns and
   other types of callables that aren't Python functions.
 
   Args:
-    argspec: An instance of inspect.ArgSpec to assign arguments to.
+    argspec: An instance of SimpleArgSpec to assign arguments to.
     *args: Positional arguments.
     **kwargs: Keyword-based arguments.
 
   Returns:
-    The same type of result as what inspect.getcallargs() returns.
+    The same type of result as what `inspect.getcallargs()` returns.
 
   Raises:
     TypeError: if the arguments are of the wrong types, or if the 'args' and
       'kwargs' combo is not compatible with 'argspec'.
   """
-  py_typecheck.check_type(argspec, inspect.ArgSpec)
+  py_typecheck.check_type(argspec, SimpleArgSpec)
   result = {}
   num_specargs = len(argspec.args) if argspec.args else 0
   num_defaults = len(argspec.defaults) if argspec.defaults else 0
@@ -142,7 +191,7 @@ def is_argspec_compatible_with_types(argspec, *args, **kwargs):
   """Determines if functions matching 'argspec' accept given 'args'/'kwargs'.
 
   Args:
-    argspec: An instance of inspect.ArgSpec to verify agains the arguments.
+    argspec: An instance of `SimpleArgSpec` to verify agains the arguments.
     *args: Zero or more positional arguments, all of which must be instances of
       computation_types.Type or something convertible to it by
       computation_types.to_type().
@@ -290,7 +339,8 @@ def pack_args_into_anonymous_tuple(args, kwargs, type_spec=None, context=None):
   else:
     py_typecheck.check_type(type_spec, computation_types.NamedTupleType)
     py_typecheck.check_type(context, context_base.Context)
-    if not is_argument_tuple(type_spec):
+    context = context  # type: context_base.Context
+    if not is_argument_tuple(type_spec):  # pylint: disable=attribute-error
       raise TypeError(
           'Parameter type {} does not have a structure of an argument tuple, '
           'and cannot be populated from multiple positional and keyword '
@@ -423,8 +473,8 @@ def infer_unpack_needed(fn, parameter_type, should_unpack=None):
   # Boolean identity comparison becaue unpack can have a non-boolean value.
   if unpack_required and should_unpack is False:  # pylint: disable=g-bool-id-comparison
     raise TypeError(
-        'The supplied function with argspec {} cannot accept a value of type '
-        '{} as a single argument.'.format(argspec, parameter_type))
+        'The supplied function "{}" with argspec {} cannot accept a value of type '
+        '{} as a single argument.'.format(fn.__name__, argspec, parameter_type))
   if is_argument_tuple(parameter_type):
     arg_types, kwarg_types = unpack_args_from_tuple(parameter_type)
     unpack_possible = is_argspec_compatible_with_types(argspec, *arg_types,
@@ -440,9 +490,9 @@ def infer_unpack_needed(fn, parameter_type, should_unpack=None):
             argspec, parameter_type))
   if unpack_required and not unpack_possible:
     raise TypeError(
-        'The supplied function with argspec {} cannot accept a value of type '
+        'The supplied function "{}" with argspec {} cannot accept a value of type '
         '{} as either a single argument or multiple positional and/or keyword '
-        'arguments.'.format(argspec, parameter_type))
+        'arguments.'.format(fn.__name__, argspec, parameter_type))
   if not unpack_required and unpack_possible and should_unpack is None:
     # The supplied function could accept a value as either a single argument,
     # or as multiple positional and/or keyword arguments, and the caller did

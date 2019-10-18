@@ -1,6 +1,6 @@
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 # NOTE: TFF code outside this directory can depend on libraries defined in this
 # directory, but not the other way round. In particular, utility classes and
@@ -10,6 +10,7 @@ licenses(["notice"])  # Apache 2.0
 py_library(
     name = "common_libs",
     srcs = ["__init__.py"],
+    visibility = ["//tensorflow_federated/tools:__subpackages__"],
 )
 
 py_library(
@@ -22,6 +23,8 @@ py_test(
     name = "anonymous_tuple_test",
     size = "small",
     srcs = ["anonymous_tuple_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
     deps = [":anonymous_tuple"],
 )
 
@@ -34,6 +37,8 @@ py_test(
     name = "py_typecheck_test",
     size = "small",
     srcs = ["py_typecheck_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
     deps = [
         ":anonymous_tuple",
         ":py_typecheck",
@@ -53,6 +58,8 @@ py_test(
     name = "serialization_utils_test",
     size = "small",
     srcs = ["serialization_utils_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
     deps = [
         ":serialization_utils",
         "@com_google_protobuf//:protobuf_python",
@@ -61,7 +68,7 @@ py_test(
 
 py_library(
     name = "test",
-    testonly = 1,
+    testonly = True,
     srcs = ["test.py"],
 )
 
@@ -69,5 +76,7 @@ py_test(
     name = "test_test",
     size = "small",
     srcs = ["test_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
     deps = [":test"],
 )

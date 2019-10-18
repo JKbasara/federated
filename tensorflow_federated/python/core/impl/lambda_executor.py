@@ -24,9 +24,9 @@ from tensorflow_federated.python.core.impl import computation_impl
 from tensorflow_federated.python.core.impl import executor_base
 from tensorflow_federated.python.core.impl import executor_value_base
 from tensorflow_federated.python.core.impl import transformations
-from tensorflow_federated.python.core.impl import type_serialization
 from tensorflow_federated.python.core.impl import type_utils
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import type_serialization
 
 
 class LambdaExecutorScope(object):
@@ -109,7 +109,7 @@ class LambdaExecutorValue(executor_value_base.ExecutorValue):
     if isinstance(value, executor_value_base.ExecutorValue):
       py_typecheck.check_none(scope)
       py_typecheck.check_none(type_spec)
-      type_spec = value.type_signature
+      type_spec = value.type_signature  # pytype: disable=attribute-error
     elif isinstance(value, pb.Computation):
       if scope is not None:
         py_typecheck.check_type(scope, LambdaExecutorScope)
@@ -124,7 +124,7 @@ class LambdaExecutorValue(executor_value_base.ExecutorValue):
       py_typecheck.check_none(scope)
       py_typecheck.check_none(type_spec)
       type_elements = []
-      for k, v in anonymous_tuple.to_elements(value):
+      for k, v in anonymous_tuple.iter_elements(value):
         py_typecheck.check_type(v, LambdaExecutorValue)
         type_elements.append((k, v.type_signature))
       type_spec = computation_types.NamedTupleType([
@@ -255,10 +255,11 @@ class LambdaExecutor(executor_base.Executor):
     param_type = comp.type_signature.parameter
     if param_type is not None:
       py_typecheck.check_type(arg, LambdaExecutorValue)
-      if not type_utils.is_assignable_from(param_type, arg.type_signature):
-        arg_type = type_utils.get_argument_type(arg.type_signature)
+      if not type_utils.is_assignable_from(param_type, arg.type_signature):  # pytype: disable=attribute-error
+        arg_type = type_utils.get_argument_type(arg.type_signature)  # pytype: disable=attribute-error
         type_utils.check_assignable_from(param_type, arg_type)
-        return await self.create_call(comp, await self.create_call(arg))
+        arg = await self.create_call(arg)
+        return await self.create_call(comp, arg)
     else:
       py_typecheck.check_none(arg)
     comp_repr = comp.internal_representation

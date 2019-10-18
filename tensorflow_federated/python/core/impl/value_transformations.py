@@ -25,8 +25,8 @@ from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.impl import context_stack_base
 from tensorflow_federated.python.core.impl import federated_computation_utils
 from tensorflow_federated.python.core.impl import intrinsic_bodies
-from tensorflow_federated.python.core.impl import transformation_utils
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.impl.compiler import transformation_utils
 
 
 def replace_intrinsics_with_callable(comp, uri, body, context_stack):
@@ -77,8 +77,8 @@ def replace_all_intrinsics_with_bodies(comp, context_stack):
   """Iterates over all intrinsic bodies, inlining the intrinsics in `comp`.
 
   Args:
-    comp: Instance of `building_blocks.ComputationBuildingBlock` in
-      which we wish to replace all intrinsics with their bodies.
+    comp: Instance of `building_blocks.ComputationBuildingBlock` in which we
+      wish to replace all intrinsics with their bodies.
     context_stack: Instance of `context_stack_base.ContextStack`, the context
       stack to use for the bodies of the intrinsics.
 

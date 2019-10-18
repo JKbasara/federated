@@ -119,8 +119,8 @@ Note: To exit the virtual environment, run `deactivate`.
 
 <pre class="prettyprint lang-bsh">
 <code class="devsite-terminal">mkdir "/tmp/tensorflow_federated"</code>
-<code class="devsite-terminal">bazel build //tensorflow_federated/tools/development:build_pip_package</code>
-<code class="devsite-terminal">bazel-bin/tensorflow_federated/tools/development/build_pip_package "/tmp/tensorflow_federated"</code>
+<code class="devsite-terminal">bazel run //tensorflow_federated/tools/development:build_pip_package -- \
+    "/tmp/tensorflow_federated"</code>
 </pre>
 
 #### 8. Create a new project.
@@ -170,16 +170,18 @@ macOS.
 
 <pre class="prettyprint lang-bsh">
 <code class="devsite-terminal">docker build . \
-    --tag tensorflow_federated:latest</code>
+    --tag tensorflow_federated</code>
 </pre>
 
 ### 4. Start a Docker container.
 
 <pre class="prettyprint lang-bsh">
-<code class="devsite-terminal">docker run -it \
-    --workdir /federated \
+<code class="devsite-terminal">docker run \
+    --interactive \
+    --tty \
     --volume $(pwd):/federated \
-    tensorflow_federated:latest \
+    --workdir /federated \
+    tensorflow_federated \
     bash</code>
 </pre>
 

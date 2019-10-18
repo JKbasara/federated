@@ -20,6 +20,9 @@ The public API for experimenters running federated learning simulations.
 [`datasets`](../tff/simulation/datasets.md) module: Datasets for running
 Federated Learning experiments in simulation.
 
+[`models`](../tff/simulation/models.md) module: Models for running Federated
+Learning experiments in simulation.
+
 ## Classes
 
 [`class ClientData`](../tff/simulation/ClientData.md): Object to hold a dataset
@@ -37,3 +40,8 @@ backed by an HDF5 file.
 
 [`class TransformingClientData`](../tff/simulation/TransformingClientData.md):
 Transforms client data, potentially expanding by adding pseudo-clients.
+
+## Functions
+
+[`run_server(...)`](../tff/simulation/run_server.md): Runs a gRPC server hosting
+a simulation component in this process.

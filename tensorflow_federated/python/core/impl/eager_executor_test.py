@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for eager_executor.py."""
 
 import asyncio
 import collections
@@ -476,6 +475,21 @@ class EagerExecutorTest(parameterized.TestCase):
     comp_proto = computation_impl.ComputationImpl.get_proto(comp)
 
     fn = eager_executor.embed_tensorflow_computation(
+        comp_proto, comp.type_signature, device='/{}'.format(device))
+    result = fn(tf.constant(20))
+    self.assertTrue(result.device.endswith(device))
+
+  @parameterized.named_parameters(
+      *[(str(dev), dev) for dev in _get_physical_devices_for_testing()])
+  def test_to_representation_for_type_succeeds_on_all_devices(self, device):
+
+    @computations.tf_computation(tf.int32)
+    def comp(x):
+      return tf.add(x, 1)
+
+    comp_proto = computation_impl.ComputationImpl.get_proto(comp)
+
+    fn = eager_executor.to_representation_for_type(
         comp_proto, comp.type_signature, device='/{}'.format(device))
     result = fn(tf.constant(20))
     self.assertTrue(result.device.endswith(device))

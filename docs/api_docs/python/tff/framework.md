@@ -34,6 +34,9 @@ invocation in TFF's internal language.
 [`class CompiledComputation`](../tff/framework/CompiledComputation.md): A
 representation of a fully constructed and serialized computation.
 
+[`class CompositeExecutor`](../tff/framework/CompositeExecutor.md): An executor
+composed of subordinate executors that manage disjoint scopes.
+
 [`class ComputationBuildingBlock`](../tff/framework/ComputationBuildingBlock.md):
 The abstract base class for abstractions in the TFF's internal language.
 
@@ -110,6 +113,9 @@ a called federated zip.
 [`create_local_executor(...)`](../tff/framework/create_local_executor.md):
 Constructs an executor to execute computations on the local machine.
 
+[`create_worker_pool_executor(...)`](../tff/framework/create_worker_pool_executor.md):
+Create an executor backed by a worker pool.
+
 [`get_map_of_unbound_references(...)`](../tff/framework/get_map_of_unbound_references.md):
 Gets a Python `dict` of the unbound references in `comp`.
 
@@ -129,7 +135,7 @@ whether `target_type` is assignable from `source_type`.
 Checks `type_spec` against an explicit whitelist for `tf_computation`.
 
 [`merge_tuple_intrinsics(...)`](../tff/framework/merge_tuple_intrinsics.md):
-Merges all the tuples of intrinsics in `comp` into one intrinsic.
+Merges tuples of called intrinsics into one called intrinsic.
 
 [`remove_lambdas_and_blocks(...)`](../tff/framework/remove_lambdas_and_blocks.md):
 Removes any called lambdas and blocks from `comp`.

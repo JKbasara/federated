@@ -14,10 +14,6 @@
 # limitations under the License.
 """TFF training loops."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import logging
 import time
 
@@ -29,7 +25,9 @@ def federated_averaging_training_loop(model_fn,
                                       client_datasets_fn,
                                       total_rounds=10,
                                       rounds_per_eval=1,
-                                      metrics_hook=lambda *args: None):
+                                      metrics_hook=lambda *args: None,
+                                      client_weight_fn=None,
+                                      stateful_delta_aggregate_fn=None):
   """A simple example of training loop for the Federated Averaging algorithm.
 
   Args:
@@ -42,7 +40,12 @@ def federated_averaging_training_loop(model_fn,
     rounds_per_eval: How often to call the  `metrics_hook` function.
     metrics_hook: A function taking arguments (server_state, train_metrics,
       round_num) and performs evaluation. Optional.
-
+    client_weight_fn: Optional function that takes the output of
+      `model.report_local_outputs` and returns a tensor that provides the weight
+      in the federated average of model deltas. If not provided, the default is
+      the total number of examples processed on device.
+    stateful_delta_aggregate_fn: A `tff.utils.StatefulAggregateFn`. (See
+      documentation for `tff.learning.build_federated_averaging_process`.)
   Returns:
     Final `ServerState`.
   """
@@ -50,7 +53,10 @@ def federated_averaging_training_loop(model_fn,
   logging.info('Starting federated_training_loop')
 
   iterative_process = tff.learning.build_federated_averaging_process(
-      model_fn, server_optimizer_fn=server_optimizer_fn)
+      model_fn,
+      server_optimizer_fn=server_optimizer_fn,
+      client_weight_fn=client_weight_fn,
+      stateful_delta_aggregate_fn=stateful_delta_aggregate_fn)
 
   server_state = iterative_process.initialize()
   train_metrics = {}
@@ -66,9 +72,8 @@ def federated_averaging_training_loop(model_fn,
         server_state, federated_train_data)
 
     train_metrics = train_metrics._asdict(recursive=True)
-    logging.info(
-        'Round {:2d}, {:2f}s per round in average.'.format(
-            round_num, (time.time() - start_time) / (round_num + 1)))
+    logging.info('Round {:2d}, {:.2f}s per round in average.'.format(
+        round_num, (time.time() - start_time) / (round_num + 1)))
 
   metrics_hook(server_state, train_metrics, total_rounds)
 

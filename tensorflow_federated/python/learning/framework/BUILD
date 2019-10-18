@@ -1,9 +1,6 @@
-package(default_visibility = [
-    "//tensorflow_federated/python/learning:__subpackages__",
-    "//tensorflow_federated/python/research:__subpackages__",
-])
+package(default_visibility = ["//tensorflow_federated/python/learning:__subpackages__"])
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 # This is the import for clients that contribute components to federated learning (see `../README.md`).
 py_library(
@@ -29,8 +26,9 @@ py_library(
 
 py_test(
     name = "encoding_utils_test",
-    size = "medium",
     srcs = ["encoding_utils_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
     deps = [
         ":encoding_utils",
         ":optimizer_utils",
@@ -54,8 +52,9 @@ py_library(
 
 py_test(
     name = "optimizer_utils_test",
-    size = "medium",
     srcs = ["optimizer_utils_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
     deps = [
         ":optimizer_utils",
         "//tensorflow_federated/python/common_libs:anonymous_tuple",

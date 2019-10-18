@@ -34,8 +34,21 @@ from tensorflow_federated.python.common_libs import anonymous_tuple
 from tensorflow_federated.python.common_libs import py_typecheck
 from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.impl import type_utils
-from tensorflow_federated.python.core.impl.utils import dtype_utils
 from tensorflow_federated.python.core.impl.utils import function_utils
+
+
+TENSOR_REPRESENTATION_TYPES = (
+    # Python native types
+    str,
+    int,
+    float,
+    bool,
+    bytes,
+
+    # Numpy data types
+    np.generic,
+    np.ndarray,
+)
 
 
 class UniqueNameFn(object):
@@ -116,7 +129,7 @@ def get_tf_typespec_and_binding(parameter_type, arg_names, unpack=None):
       element_bindings = []
       have_names = False
       have_nones = False
-      for e_name, e_type in anonymous_tuple.to_elements(parameter_type):
+      for e_name, e_type in anonymous_tuple.iter_elements(parameter_type):
         if e_name is None:
           have_nones = True
         else:
@@ -331,7 +344,7 @@ def stamp_parameter_in_graph(parameter_name, parameter_type, graph):
       dummy_tensor = tf.no_op()
     element_name_value_pairs = []
     element_bindings = []
-    for e in anonymous_tuple.to_elements(parameter_type):
+    for e in anonymous_tuple.iter_elements(parameter_type):
       e_val, e_binding = stamp_parameter_in_graph(
           '{}_{}'.format(parameter_name, e[0]), e[1], graph)
       element_name_value_pairs.append((e[0], e_val))
@@ -353,10 +366,6 @@ def stamp_parameter_in_graph(parameter_name, parameter_type, graph):
     raise ValueError(
         'Parameter type component {!r} cannot be stamped into a TensorFlow '
         'graph.'.format(parameter_type))
-
-
-DATASET_REPRESENTATION_TYPES = (tf.data.Dataset, tf.compat.v1.data.Dataset,
-                                tf.compat.v2.data.Dataset)
 
 
 def make_dataset_from_variant_tensor(variant_tensor, type_spec):
@@ -422,7 +431,7 @@ def capture_result_from_graph(result, graph):
   # TODO(b/113112885): The emerging extensions for serializing SavedModels may
   # end up introducing similar concepts of bindings, etc., we should look here
   # into the possibility of reusing some of that code when it's available.
-  if isinstance(result, dtype_utils.TENSOR_REPRESENTATION_TYPES):
+  if isinstance(result, TENSOR_REPRESENTATION_TYPES):
     with graph.as_default():
       result = tf.constant(result)
   if tf.is_tensor(result):
@@ -732,7 +741,7 @@ def make_empty_list_structure_for_element_type_spec(type_spec):
         'Expected a tensor or named tuple type, found {}.'.format(type_spec))
 
 
-def _make_dummy_element_for_type_spec(type_spec):
+def make_dummy_element_for_type_spec(type_spec, none_dim_replacement=0):
   """Creates ndarray of zeros corresponding to `type_spec`.
 
   Returns a list containing this ndarray, whose type is *compatible* with, not
@@ -742,12 +751,15 @@ def _make_dummy_element_for_type_spec(type_spec):
   to signify compatibility with batches of any size). However a concrete
   structure (like the ndarray) must have specified sizes for its dimensions.
   So we construct a dummy element where any `None` dimensions of the shape
-  of `type_spec` are replaced with the value 0. This function therefore
-  returns a dummy element of minimal size which matches `type_spec`.
+  of `type_spec` are replaced with the value `none_dim_replacement`.The
+  default value of 0 therefore returns a dummy element of minimal size which
+  matches `type_spec`.
 
   Args:
     type_spec: Instance of `computation_types.Type`, or something convertible to
       one by `computation_types.to_type`.
+    none_dim_replacement: `int` with which to replace any unspecified tensor
+      dimensions.
 
   Returns:
     Returns possibly nested `numpy ndarray`s containing all zeros: a single
@@ -757,19 +769,32 @@ def _make_dummy_element_for_type_spec(type_spec):
     compatible with `type_spec`.
   """
   type_spec = computation_types.to_type(type_spec)
-  py_typecheck.check_type(type_spec, computation_types.Type)
+  if not type_utils.type_tree_contains_only(
+      type_spec,
+      (computation_types.TensorType, computation_types.NamedTupleType)):
+    raise ValueError('Cannot construct array for TFF type containing anything '
+                     'other than `computation_types.TensorType` or '
+                     '`computation_types.NamedTupleType`; you have passed the '
+                     'type {}'.format(type_spec))
+  py_typecheck.check_type(none_dim_replacement, int)
+  if none_dim_replacement < 0:
+    raise ValueError('Please pass nonnegative integer argument as '
+                     '`none_dim_replacement`.')
+
+  def _handle_none_dimension(x):
+    if x is None or (isinstance(x, tf.compat.v1.Dimension) and x.value is None):
+      return none_dim_replacement
+    return x
+
   if isinstance(type_spec, computation_types.TensorType):
-    dummy_shape = [x if x is not None else 0 for x in type_spec.shape]
+    dummy_shape = [_handle_none_dimension(x) for x in type_spec.shape]
     return np.zeros(dummy_shape, type_spec.dtype.as_numpy_dtype)
   elif isinstance(type_spec, computation_types.NamedTupleType):
     elements = anonymous_tuple.to_elements(type_spec)
     elem_list = []
     for _, elem_type in elements:
-      elem_list.append(_make_dummy_element_for_type_spec(elem_type))
+      elem_list.append(make_dummy_element_for_type_spec(elem_type))
     return elem_list
-  else:
-    raise TypeError(
-        'Expected a tensor or named tuple type, found {}.'.format(type_spec))
 
 
 def append_to_list_structure_for_element_type_spec(structure, value, type_spec):
@@ -810,12 +835,12 @@ def append_to_list_structure_for_element_type_spec(structure, value, type_spec):
           'all unnamed, got {}.'.format(value))
   if isinstance(type_spec, computation_types.TensorType):
     py_typecheck.check_type(structure, list)
-    structure.append(value)
+    structure.append(value)  # pytype: disable=attribute-error
   elif isinstance(type_spec, computation_types.NamedTupleType):
     elements = anonymous_tuple.to_elements(type_spec)
     if isinstance(structure, collections.OrderedDict):
       if py_typecheck.is_named_tuple(value):
-        value = value._asdict()
+        value = value._asdict()  # pytype: disable=attribute-error
       if isinstance(value, dict):
         if set(value.keys()) != set(k for k, _ in elements):
           raise TypeError('Value {} does not match type {}.'.format(
@@ -954,7 +979,7 @@ def make_data_set_from_elements(graph, elements, element_type):
   def _work():  # pylint: disable=missing-docstring
     if not elements:
       # Just return an empty data set with the appropriate types.
-      dummy_element = _make_dummy_element_for_type_spec(element_type)
+      dummy_element = make_dummy_element_for_type_spec(element_type)
       ds = _make([dummy_element]).take(0)
     elif len(elements) == 1:
       ds = _make(elements)
@@ -1012,7 +1037,7 @@ def fetch_value_in_session(sess, value):
   py_typecheck.check_type(sess, tf.compat.v1.Session)
   # TODO(b/113123634): Investigate handling `list`s and `tuple`s of
   # `tf.data.Dataset`s and what the API would look like to support this.
-  if isinstance(value, DATASET_REPRESENTATION_TYPES):
+  if isinstance(value, type_utils.TF_DATASET_REPRESENTATION_TYPES):
     with sess.graph.as_default():
       iterator = tf.compat.v1.data.make_one_shot_iterator(value)
       next_element = iterator.get_next()
@@ -1028,7 +1053,7 @@ def fetch_value_in_session(sess, value):
     dataset_results = {}
     flat_tensors = []
     for idx, v in enumerate(flattened_value):
-      if isinstance(v, DATASET_REPRESENTATION_TYPES):
+      if isinstance(v, type_utils.TF_DATASET_REPRESENTATION_TYPES):
         dataset_tensors = fetch_value_in_session(sess, v)
         if not dataset_tensors:
           # An empty list has been returned; we must pack the shape information
@@ -1037,7 +1062,7 @@ def fetch_value_in_session(sess, value):
           output_types = tf.compat.v1.data.get_output_types(v)
           zipped_elems = tf.nest.map_structure(lambda x, y: (x, y),
                                                output_types, output_shapes)
-          dummy_elem = _make_dummy_element_for_type_spec(zipped_elems)
+          dummy_elem = make_dummy_element_for_type_spec(zipped_elems)
           dataset_tensors = [dummy_elem]
         dataset_results[idx] = dataset_tensors
       elif tf.is_tensor(v):
@@ -1143,3 +1168,69 @@ def add_control_deps_for_init_op(graph_def, init_op):
       if init_op_control_dep not in node_inputs:
         new_node.input.extend([init_op_control_dep])
   return new_graph_def
+
+
+def coerce_dataset_elements_to_tff_type_spec(dataset, element_type):
+  """Map the elements of a dataset to a specified type.
+
+  This is used to coerce a `tf.data.Dataset` that may have lost the ordering
+  of dictionary keys back into a `collections.OrderedDict` (required by TFF).
+
+  Args:
+    dataset: a `tf.data.Dataset` instance.
+    element_type: a `tff.Type` specifying the type of the elements of `dataset`.
+      Must be a `tff.TensorType` or `tff.NamedTupleType`.
+
+  Returns:
+    A `tf.data.Dataset` whose output types are compatible with
+    `element_type`.
+
+  Raises:
+    ValueError: if the elements of `dataset` cannot be coerced into
+      `element_type`.
+  """
+  py_typecheck.check_type(dataset, type_utils.TF_DATASET_REPRESENTATION_TYPES)
+  py_typecheck.check_type(element_type, computation_types.Type)
+
+  if isinstance(element_type, computation_types.TensorType):
+    return dataset
+
+  # This is a similar to `reference_executor.to_representation_for_type`,
+  # look for opportunities to consolidate?
+  def _to_representative_value(type_spec, elements):
+    """Convert to a container to a type understood by TF and TFF."""
+    if isinstance(type_spec, computation_types.TensorType):
+      return elements
+    elif isinstance(type_spec, computation_types.NamedTupleType):
+      field_types = anonymous_tuple.to_elements(type_spec)
+      is_all_named = all([name is not None for name, _ in field_types])
+      if is_all_named:
+        if py_typecheck.is_named_tuple(elements):
+          values = collections.OrderedDict(
+              (name, _to_representative_value(field_type, e))
+              for (name, field_type), e in zip(field_types, elements))
+          return type(elements)(**values)
+        else:
+          values = [(name, _to_representative_value(field_type, elements[name]))
+                    for name, field_type in field_types]
+          return collections.OrderedDict(values)
+      else:
+        return tuple(
+            _to_representative_value(t, e) for t, e in zip(type_spec, elements))
+    else:
+      raise ValueError(
+          'Coercing a dataset with elements of expected type {!s}, '
+          'produced a value with incompatible type `{!s}. Value: '
+          '{!s}'.format(type_spec, type(elements), elements))
+
+  # tf.data.Dataset of tuples will unwrap the tuple in the `map()` call, so we
+  # must pass a function taking *args. However, if the call was originally only
+  # a single tuple, it is now "double wrapped" and must be unwrapped before
+  # traversing.
+  def _unwrap_args(*args):
+    if len(args) == 1:
+      return _to_representative_value(element_type, args[0])
+    else:
+      return _to_representative_value(element_type, args)
+
+  return dataset.map(_unwrap_args)

@@ -37,7 +37,7 @@ class AnonymousTuple(object):
   instance, which incurs unnecessary overhead. Anonymous tuples are thus
   related to `collections.namedtuples` much in the same way anonymous lambdas
   are related to named functions explicitly declared with `def`. One of the
-  intended uses of annoymous tuples is to represent structured parameters in
+  intended uses of anonymous tuples is to represent structured parameters in
   computations defined as Python functions or TF defuns.
 
   Example:
@@ -50,7 +50,7 @@ class AnonymousTuple(object):
   x[1] == 20
   x[2] == 30
   list(iter(x)) == [10, 20, 30]
-  sorted(dir(x)) == ['bar', 'foo']
+  dir(x) == ['bar', 'foo']
   x.foo == 10
   x.bar == 30
   ```
@@ -61,7 +61,7 @@ class AnonymousTuple(object):
   Also note that the user will not be creating such tuples. They are a hidden
   part of the impementation designed to work together with function decorators.
   """
-  __slots__ = ('_hash', '_element_array', '_name_to_index')
+  __slots__ = ('_hash', '_element_array', '_name_to_index', '_name_array')
 
   # TODO(b/113112108): Define more magic methods for convenience in handling
   # anonymous tuples. Possibly move out to a more generic location or replace
@@ -87,13 +87,17 @@ class AnonymousTuple(object):
 
     self._element_array = tuple(e[1] for e in elements)
     self._name_to_index = {}
+    self._name_array = []
+    reserved_names = ('_asdict',) + AnonymousTuple.__slots__
     for idx, e in enumerate(elements):
       name = e[0]
+      self._name_array.append(name)
       if name is None:
         continue
-      if name == '_asdict':
+      if name in reserved_names:
         raise ValueError(
-            'The name "_asdict" is reserved for a method, as with namedtuples.')
+            'The names in {} are reserved. You passed the name {}.'.format(
+                reserved_names, name))
       elif name in self._name_to_index:
         raise ValueError(
             'AnonymousTuple does not support duplicated names, but found {}'
@@ -113,6 +117,9 @@ class AnonymousTuple(object):
     IMPORTANT: `len(self)` may be greater than `len(dir(self))`, since field
     names are not required by AnonymousTuple.
 
+    IMPORTANT: the Python `dir()` built-in sorts the list returned by this
+    method.
+
     Returns:
       A `list` of `str`.
     """
@@ -130,17 +137,19 @@ class AnonymousTuple(object):
   def __getattr__(self, name):
     if name not in self._name_to_index:
       raise AttributeError(
-          'The tuple of length {:d} does not have named field "{!s}".'
-          'Names (only first 10): {!s}'.format(
+          'The tuple of length {:d} does not have named field "{!s}". '
+          'Fields (up to first 10): {!s}'.format(
               len(self._element_array), name,
               list(self._name_to_index.keys())[:10]))
     return self._element_array[self._name_to_index[name]]
 
   def __eq__(self, other):
+    if self is other:
+      return True
     # pylint: disable=protected-access
     return (isinstance(other, AnonymousTuple) and
             (self._element_array == other._element_array) and
-            (self._name_to_index == other._name_to_index))
+            (self._name_array == other._name_array))
     # pylint: enable=protected-access
 
   def __ne__(self, other):
@@ -165,7 +174,7 @@ class AnonymousTuple(object):
       self._hash = hash((
           'anonymous_tuple',  # salting to avoid type mismatch.
           self._element_array,
-          tuple(self._name_to_index.items())))
+          tuple(self._name_array)))
     return self._hash
 
   def _asdict(self, recursive=False):
@@ -178,6 +187,21 @@ class AnonymousTuple(object):
       An `OrderedDict`.
     """
     return to_odict(self, recursive=recursive)
+
+
+def name_list(an_anonymous_tuple):
+  """Builds a `list` of the names from the named fields.
+
+  Args:
+    an_anonymous_tuple: An instance of `AnonymousTuple`.
+
+  Returns:
+    The list of string names for the fields that are named. Names appear in
+  order, skipping names that are `None`.
+  """
+  return [
+      name for name, _ in iter_elements(an_anonymous_tuple) if name is not None
+  ]
 
 
 def to_elements(an_anonymous_tuple):
@@ -199,12 +223,33 @@ def to_elements(an_anonymous_tuple):
   """
   py_typecheck.check_type(an_anonymous_tuple, AnonymousTuple)
   # pylint: disable=protected-access
-  index_to_name = {
-      idx: name
-      for name, idx in six.iteritems(an_anonymous_tuple._name_to_index)
-  }
-  return [(index_to_name.get(idx), val)
-          for idx, val in enumerate(an_anonymous_tuple._element_array)]
+  return list(
+      zip(an_anonymous_tuple._name_array, an_anonymous_tuple._element_array))
+  # pylint: enable=protected-access
+
+
+def iter_elements(an_anonymous_tuple):
+  """Generates the list of (name, value) pairs from an anonymous tuple.
+
+  Modeled as a module function rather than a method of `AnonymousTuple` to avoid
+  naming conflicts with the tuple attributes, and so as not to expose the user
+  to this implementation-oriented functionality.
+
+  Args:
+    an_anonymous_tuple: An instance of `AnonymousTuple`.
+
+  Yields:
+    A 2-tuple of name, value pairs, representing the elements of
+      `an_anonymous_tuple`.
+
+  Raises:
+    TypeError: if the argument is not an `AnonymousTuple`.
+  """
+  py_typecheck.check_type(an_anonymous_tuple, AnonymousTuple)
+  # pylint: disable=protected-access
+  for name, val in zip(an_anonymous_tuple._name_array,
+                       an_anonymous_tuple._element_array):
+    yield (name, val)
   # pylint: enable=protected-access
 
 

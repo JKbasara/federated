@@ -23,11 +23,14 @@ import collections
 import numpy as np
 import tensorflow as tf
 
-import tensorflow_federated as tff
+from tensorflow_federated.python import learning
 from tensorflow_federated.python.core.api import computation_types
 from tensorflow_federated.python.core.api import computations
+from tensorflow_federated.python.core.api import intrinsics
+from tensorflow_federated.python.core.api import placements
 from tensorflow_federated.python.core.backends.mapreduce import canonical_form
 from tensorflow_federated.python.core.impl.compiler import building_blocks
+from tensorflow_federated.python.core.utils import computation_utils
 
 
 def get_temperature_sensor_example():
@@ -51,7 +54,7 @@ def get_temperature_sensor_example():
 
   @computations.tf_computation(server_state_type)
   def prepare(state):
-    return {'max_temperature': 32.0 + tf.cast(state.num_rounds, tf. float32)}
+    return {'max_temperature': 32.0 + tf.cast(state.num_rounds, tf.float32)}
 
   # The initial state of the client is a singleton tuple containing a single
   # float `max_temperature`, which is the threshold received from the server.
@@ -63,11 +66,23 @@ def get_temperature_sensor_example():
 
   @computations.tf_computation(client_data_type, client_state_type)
   def work(data, state):
-    reduce_result = data.reduce(
-        {'num': np.int32(0), 'max': np.float32(-459.67)},
-        lambda s, x: {'num': s['num'] + 1, 'max': tf.maximum(s['max'], x)})
-    return ({'is_over': reduce_result['max'] > state.max_temperature},
-            {'num_readings': reduce_result['num']})
+    """See the `canonical_form.CanonicalForm` definition of `work`."""
+
+    def fn(s, x):
+      return {
+          'num': s['num'] + 1,
+          'max': tf.maximum(s['max'], x),
+      }
+
+    reduce_result = data.reduce({
+        'num': np.int32(0),
+        'max': np.float32(-459.67)
+    }, fn)
+    return ({
+        'is_over': reduce_result['max'] > state.max_temperature
+    }, {
+        'num_readings': reduce_result['num']
+    })
 
   # The client update is a singleton tuple with a Boolean-typed `is_over`.
   client_update_type = computation_types.NamedTupleType([('is_over', tf.bool)])
@@ -80,27 +95,29 @@ def get_temperature_sensor_example():
 
   @computations.tf_computation
   def zero():
-    return collections.OrderedDict([
-        ('num_total', tf.constant(0)), ('num_over', tf.constant(0))])
+    return collections.OrderedDict([('num_total', tf.constant(0)),
+                                    ('num_over', tf.constant(0))])
 
   @computations.tf_computation(accumulator_type, client_update_type)
   def accumulate(accumulator, update):
     return collections.OrderedDict([
         ('num_total', accumulator.num_total + 1),
-        ('num_over',
-         accumulator.num_over + tf.cast(update.is_over, tf.int32))])
+        ('num_over', accumulator.num_over + tf.cast(update.is_over, tf.int32))
+    ])
 
   @computations.tf_computation(accumulator_type, accumulator_type)
   def merge(accumulator1, accumulator2):
     return collections.OrderedDict([
         ('num_total', accumulator1.num_total + accumulator2.num_total),
-        ('num_over', accumulator1.num_over + accumulator2.num_over)])
+        ('num_over', accumulator1.num_over + accumulator2.num_over)
+    ])
 
   @computations.tf_computation(merge.type_signature.result)
   def report(accumulator):
-    return {'ratio_over_threshold': (
-        tf.cast(accumulator['num_over'], tf.float32) /
-        tf.cast(accumulator['num_total'], tf.float32))}
+    return {
+        'ratio_over_threshold': (tf.cast(accumulator['num_over'], tf.float32) /
+                                 tf.cast(accumulator['num_total'], tf.float32))
+    }
 
   # The type of the combined update is a singleton tuple containing a float
   # named `ratio_over_threshold`.
@@ -123,8 +140,7 @@ def get_mnist_training_example():
     An instance of `canonical_form.CanonicalForm`.
   """
   model_nt = collections.namedtuple('Model', 'weights bias')
-  server_state_nt = (
-      collections.namedtuple('ServerState', 'model num_rounds'))
+  server_state_nt = (collections.namedtuple('ServerState', 'model num_rounds'))
 
   # Start with a model filled with zeros, and the round counter set to zero.
   @computations.tf_computation
@@ -165,29 +181,29 @@ def get_mnist_training_example():
     model_vars = model_nt(
         weights=tf.Variable(initial_value=state.model.weights, name='weights'),
         bias=tf.Variable(initial_value=state.model.bias, name='bias'))
+    init_model = tf.compat.v1.global_variables_initializer()
 
-    with tf.control_dependencies([tf.global_variables_initializer()]):
-      init_model = tf.group(
-          tf.assign(model_vars.weights, state.model.weights),
-          tf.assign(model_vars.bias, state.model.bias))
-
-    optimizer = tf.train.GradientDescentOptimizer(state.learning_rate)
+    optimizer = tf.keras.optimizers.SGD(state.learning_rate)
 
     @tf.function
     def reduce_fn(loop_state, batch):
-      pred_y = tf.nn.softmax(
-          tf.matmul(batch.x, model_vars.weights) + model_vars.bias)
-      loss = -tf.reduce_mean(tf.reduce_sum(
-          tf.one_hot(batch.y, 10) * tf.log(pred_y), reduction_indices=[1]))
-      with tf.control_dependencies([optimizer.minimize(loss)]):
-        return loop_state_nt(
-            num_examples=loop_state.num_examples + 1,
-            total_loss=loop_state.total_loss + loss)
+      """Compute a single gradient step on an given batch of examples."""
+      with tf.GradientTape() as tape:
+        pred_y = tf.nn.softmax(
+            tf.matmul(batch.x, model_vars.weights) + model_vars.bias)
+        loss = -tf.reduce_mean(
+            tf.reduce_sum(
+                tf.one_hot(batch.y, 10) * tf.math.log(pred_y), axis=[1]))
+      grads = tape.gradient(loss, model_vars)
+      optimizer.apply_gradients(
+          zip(tf.nest.flatten(grads), tf.nest.flatten(model_vars)))
+      return loop_state_nt(
+          num_examples=loop_state.num_examples + 1,
+          total_loss=loop_state.total_loss + loss)
 
     with tf.control_dependencies([init_model]):
       loop_state = data.reduce(
-          loop_state_nt(num_examples=0, total_loss=np.float32(0.0)),
-          reduce_fn)
+          loop_state_nt(num_examples=0, total_loss=np.float32(0.0)), reduce_fn)
       num_examples = loop_state.num_examples
       total_loss = loop_state.total_loss
       with tf.control_dependencies([num_examples, total_loss]):
@@ -215,8 +231,8 @@ def get_mnist_training_example():
   @computations.tf_computation(accumulator_tff_type, update_tff_type)
   def accumulate(accumulator, update):
     scaling_factor = tf.cast(update.num_examples, tf.float32)
-    scaled_model = tf.nest.map_structure(
-        lambda x: x * scaling_factor, update.model)
+    scaled_model = tf.nest.map_structure(lambda x: x * scaling_factor,
+                                         update.model)
     return accumulator_nt(
         model=tf.nest.map_structure(tf.add, accumulator.model, scaled_model),
         num_examples=accumulator.num_examples + update.num_examples,
@@ -226,8 +242,8 @@ def get_mnist_training_example():
   @computations.tf_computation(accumulator_tff_type, accumulator_tff_type)
   def merge(accumulator1, accumulator2):
     return accumulator_nt(
-        model=tf.nest.map_structure(
-            tf.add, accumulator1.model, accumulator2.model),
+        model=tf.nest.map_structure(tf.add, accumulator1.model,
+                                    accumulator2.model),
         num_examples=accumulator1.num_examples + accumulator2.num_examples,
         loss=accumulator1.loss + accumulator2.loss)
 
@@ -254,19 +270,18 @@ def get_mnist_training_example():
   @computations.tf_computation(server_state_tff_type, report_tff_type)
   def update(state, report):
     num_rounds = state.num_rounds + 1
-    return (
-        server_state_nt(model=report.model, num_rounds=num_rounds),
-        metrics_nt(
-            num_rounds=num_rounds,
-            num_examples=report.num_examples,
-            loss=report.loss))
+    return (server_state_nt(model=report.model, num_rounds=num_rounds),
+            metrics_nt(
+                num_rounds=num_rounds,
+                num_examples=report.num_examples,
+                loss=report.loss))
 
   return canonical_form.CanonicalForm(initialize, prepare, work, zero,
                                       accumulate, merge, report, update)
 
 
 def construct_example_training_comp():
-  """Constructs a `tff.utils.IterativeProcess` via the FL API."""
+  """Constructs a `computation_utils.IterativeProcess` via the FL API."""
   np.random.seed(0)
 
   sample_batch = collections.OrderedDict([('x',
@@ -293,11 +308,45 @@ def construct_example_training_comp():
         loss=loss_fn,
         optimizer=tf.keras.optimizers.SGD(learning_rate=0.01),
         metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
-    return tff.learning.from_compiled_keras_model(keras_model, sample_batch)
+    return learning.from_compiled_keras_model(keras_model, sample_batch)
 
-  return tff.learning.build_federated_averaging_process(model_fn)
+  return learning.build_federated_averaging_process(model_fn)
 
 
 def computation_to_building_block(comp):
   return building_blocks.ComputationBuildingBlock.from_proto(
       comp._computation_proto)  # pylint: disable=protected-access
+
+
+def get_iterative_process_for_canonical_form_example():
+  """Construct a simple `IterativeProcess` compatible with `CanonicalForm`.
+
+  The computation itself is non-sensical; but demonstrates the required type
+  signatures for `CanonicalForm```.
+
+  Returns:
+    An `IterativeProcess` compatible with `CanonicalForm`.
+  """
+
+  @computations.tf_computation(tf.int32, tf.float32)
+  def add_two(x_int, y_float):
+    return tf.cast(x_int, tf.float32) + y_float
+
+  @computations.federated_computation
+  def init_fn():
+    return intrinsics.federated_value(1.234, placements.SERVER)
+
+  @computations.federated_computation([
+      computation_types.FederatedType(tf.float32, placements.SERVER),
+      computation_types.FederatedType(tf.int32, placements.CLIENTS)
+  ])
+  def next_fn(server_val, client_val):
+    """Defines a series of federated computations compatible with CanonicalForm."""
+    broadcast_val = intrinsics.federated_broadcast(server_val)
+    values_on_clients = intrinsics.federated_zip((client_val, broadcast_val))
+    result_on_clients = intrinsics.federated_map(add_two, values_on_clients)
+    aggregated_result = intrinsics.federated_mean(result_on_clients)
+    side_output = intrinsics.federated_value([1, 2, 3, 4, 5], placements.SERVER)
+    return aggregated_result, side_output
+
+  return computation_utils.IterativeProcess(init_fn, next_fn)

@@ -21,6 +21,7 @@ from __future__ import print_function
 import collections
 import inspect
 
+import attr
 import six
 from six.moves import builtins
 
@@ -180,8 +181,8 @@ def _check_is_class(cls):
 
 
 def is_attrs(value):
-  """Determines whether `value` is an instance of an attrs decorated class."""
-  return hasattr(value, '__attrs_attrs__')
+  """Determines whether `value` is an attrs decorated class or instance of."""
+  return attr.has(value)
 
 
 def is_named_tuple(value):
@@ -189,7 +190,7 @@ def is_named_tuple(value):
 
   As `collections.namedtuple` creates a new class with no common a base for each
   named tuple, there is no simple way to check the type with `isintance(T)`.
-  Instead, this method looks to see if `value` has an `_asdict` attribute (which
+  Instead, this method looks to see if `value` has an `_fields` attribute (which
   all namedtuple subclasses support).
 
   Args:
@@ -229,3 +230,19 @@ def is_name_value_pair(element, name_required=True, value_type=None):
   if value_type is not None and not isinstance(element[1], value_type):
     return False
   return True
+
+
+def check_len(target, length):
+  """Checks that the length of `target` is equal to `length`.
+
+  Args:
+    target: The object to check.
+    length: The expected length.
+
+  Raises:
+    ValueError: If the lengths do not match.
+  """
+  if len(target) != length:
+    raise ValueError(
+        'Expected an argument of length {}, got one of length {} ({}).'.format(
+            length, len(target), target))

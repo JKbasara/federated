@@ -12,11 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for federated_aggregations.py."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 
@@ -153,6 +148,83 @@ class FederatedMaxTest(absltest.TestCase):
         return federated_aggregations.federated_max(value)
 
       call_federated_max([1.0, 2.0, 3.0])
+
+
+class FederatedSampleTest(tf.test.TestCase):
+
+  def test_federated_sample_single_value(self):
+
+    @tff.federated_computation(tff.FederatedType(tf.float32, tff.CLIENTS))
+    def call_federated_sample(value):
+      return federated_aggregations.federated_sample(value)
+
+    value = call_federated_sample([1.0, 2.0, 5.0])
+    self.assertCountEqual(value, [1.0, 2.0, 5.0])
+
+  def test_federated_sample_on_nested_scalars(self):
+    tuple_type = tff.NamedTupleType([
+        ('x', tf.float32),
+        ('y', tf.float32),
+    ])
+
+    @tff.federated_computation(tff.FederatedType(tuple_type, tff.CLIENTS))
+    def call_federated_sample(value):
+      return federated_aggregations.federated_sample(value)
+
+    x0 = 0.0
+    y0 = 1.0
+    x1 = -1.0
+    y1 = 5.0
+    test_type = collections.namedtuple('NestedScalars', ['x', 'y'])
+    value = call_federated_sample(
+        [test_type(x0, y0),
+         test_type(x1, y1),
+         test_type(2.0, -10.0)])
+    result = value._asdict()
+    i0 = list(result['x']).index(x0)
+    i1 = list(result['y']).index(y1)
+
+    # Assert shuffled in unison.
+    self.assertEqual(result['y'][i0], y0)
+    self.assertEqual(result['x'][i1], x1)
+
+  def test_federated_sample_wrong_placement(self):
+    with self.assertRaisesRegex(
+        TypeError, r'.*argument must be a tff.Value placed at CLIENTS.*'):
+
+      @tff.federated_computation(tff.FederatedType(tf.bool, tff.SERVER))
+      def call_federated_sample(value):
+        return federated_aggregations.federated_sample(value)
+
+      call_federated_sample([True, False, True, True])
+
+  def test_federated_sample_max_size_is_100(self):
+
+    @tff.federated_computation(tff.FederatedType(tf.float32, tff.CLIENTS))
+    def call_federated_sample(value):
+      return federated_aggregations.federated_sample(value)
+
+    value = call_federated_sample([1.0] * 100 + [0.0] * 100)
+    self.assertLen(value, 100)
+    self.assertAlmostEqual(len(np.nonzero(value)[0]), 50, delta=10)
+
+  def test_federated_sample_preserves_nan_percentage(self):
+
+    @tff.federated_computation(tff.FederatedType(tf.float32, tff.CLIENTS))
+    def call_federated_sample(value):
+      return federated_aggregations.federated_sample(value)
+
+    value = call_federated_sample([1.0] * 100 + [np.nan] * 100)
+    self.assertAlmostEqual(np.count_nonzero(np.isnan(value)), 50, delta=10)
+
+  def test_federated_sample_preserves_inf_percentage(self):
+
+    @tff.federated_computation(tff.FederatedType(tf.float32, tff.CLIENTS))
+    def call_federated_sample(value):
+      return federated_aggregations.federated_sample(value)
+
+    value = call_federated_sample([1.0] * 100 + [np.inf] * 100)
+    self.assertAlmostEqual(np.count_nonzero(np.isinf(value)), 50, delta=10)
 
 
 if __name__ == '__main__':
